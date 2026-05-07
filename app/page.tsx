@@ -9,43 +9,18 @@ type Poster = {
   width: number;
   height: number;
   speed: number;
-  title: string;
-  gradientStart: string;
-  gradientEnd: string;
+  image: HTMLImageElement | null;
 };
 
-const TITLES = [
-  "El Padrino",
-  "Pulp Fiction",
-  "Inception",
-  "Interstellar",
-  "The Dark Knight",
-  "Forrest Gump",
-  "El Rey León",
-  "Titanic",
-  "Avatar",
-  "Matrix",
-  "Gladiator",
-  "Braveheart",
-  "Goodfellas",
-  "Scarface",
-  "El Señor de los Anillos",
-  "Harry Potter",
-  "Top Gun",
-  "Oppenheimer",
-  "Dune",
-  "La La Land"
-];
-
-const POSTER_GRADIENTS: Array<[string, string]> = [
-  ["#8B0000", "#1f0a0a"],
-  ["#1a237e", "#0d133f"],
-  ["#1b5e20", "#0d3110"],
-  ["#4a148c", "#220a42"],
-  ["#e65100", "#4a1f00"],
-  ["#37474f", "#1d2529"],
-  ["#263238", "#11171a"],
-  ["#3e2723", "#1f1411"]
+const TMDB_API_KEY = "2de8d3ecfb29fc4efda4d7fa09d0920e";
+const TMDB_MOVIE_IDS = [
+  238, 680, 27205, 157336, 155, 13, 597, 603, 98, 872585,
+  278, 424, 389, 129, 19404, 637, 372058, 240, 429, 769,
+  311, 207, 101, 539, 346, 453, 497, 489, 77338, 68718,
+  244786, 76341, 299536, 284054, 315162, 361743, 766507, 560050, 438148, 414906,
+  550, 120, 121, 122, 671, 672, 673, 674, 675, 767,
+  12445, 12444, 1726, 1771, 68721, 99861, 271110, 284052, 283995, 335983,
+  400160, 508442, 508943, 459151, 315635, 429617, 566525, 524434, 634649, 616037
 ];
 
 function AppleIcon() {
@@ -99,20 +74,69 @@ export default function HomePage() {
     let width = 0;
     let height = 0;
     const dpr = window.devicePixelRatio || 1;
+    let isDisposed = false;
+    let posterImages: HTMLImageElement[] = [];
+    let nextImageIndex = 0;
+    const POSTER_WIDTH = 90;
+    const POSTER_HEIGHT = 130;
+    const COLUMN_GAP = 10;
+    const COLUMN_WIDTH = POSTER_WIDTH + COLUMN_GAP;
 
-    const createPoster = (initialY?: number): Poster => {
-      const [gradientStart, gradientEnd] =
-        POSTER_GRADIENTS[Math.floor(Math.random() * POSTER_GRADIENTS.length)];
+    const getNextImage = () => {
+      if (posterImages.length === 0) {
+        return null;
+      }
+      const image = posterImages[nextImageIndex % posterImages.length];
+      nextImageIndex += 1;
+      return image;
+    };
+
+    const createPoster = (x: number, initialY?: number, image?: HTMLImageElement): Poster => {
       return {
-        x: Math.random() * Math.max(width - 80, 1),
-        y: initialY ?? Math.random() * (height + 115),
-        width: 80,
-        height: 115,
-        speed: 0.3 + Math.random() * 0.3,
-        title: TITLES[Math.floor(Math.random() * TITLES.length)],
-        gradientStart,
-        gradientEnd
+        x,
+        y: initialY ?? Math.random() * (height + POSTER_HEIGHT),
+        width: POSTER_WIDTH,
+        height: POSTER_HEIGHT,
+        speed: 0.2 + Math.random() * 0.4,
+        image: image ?? null
       };
+    };
+
+    const preloadImage = (src: string) =>
+      new Promise<HTMLImageElement>((resolve, reject) => {
+        const img = new Image();
+        img.crossOrigin = "anonymous";
+        img.onload = () => resolve(img);
+        img.onerror = reject;
+        img.src = src;
+      });
+
+    const loadPosterImages = async () => {
+      try {
+        const movieRequests = await Promise.all(
+          TMDB_MOVIE_IDS.map(async (id) => {
+            const response = await fetch(
+              `https://api.themoviedb.org/3/movie/${id}?api_key=${TMDB_API_KEY}&language=es-ES`
+            );
+            if (!response.ok) {
+              return null;
+            }
+            const data = (await response.json()) as { poster_path?: string | null };
+            return data.poster_path ?? null;
+          })
+        );
+
+        const posterPaths = movieRequests
+          .filter((path): path is string => Boolean(path))
+          .map((path) => `https://image.tmdb.org/t/p/w185${path}`);
+
+        const loaded = await Promise.allSettled(posterPaths.map((src) => preloadImage(src)));
+        posterImages = loaded
+          .filter((result): result is PromiseFulfilledResult<HTMLImageElement> => result.status === "fulfilled")
+          .map((result) => result.value);
+      } catch {
+        posterImages = [];
+      }
     };
 
     const resize = () => {
@@ -124,44 +148,49 @@ export default function HomePage() {
       canvas.style.height = `${height}px`;
       context.setTransform(dpr, 0, 0, dpr, 0, 0);
       posters.length = 0;
-      const count = 20;
-      for (let i = 0; i < count; i += 1) {
-        posters.push(createPoster());
+      nextImageIndex = 0;
+
+      const columns = Math.max(1, Math.floor((width + COLUMN_GAP) / COLUMN_WIDTH));
+      const totalColumnsWidth = columns * POSTER_WIDTH + (columns - 1) * COLUMN_GAP;
+      const startX = Math.max(0, (width - totalColumnsWidth) / 2);
+
+      for (let col = 0; col < columns; col += 1) {
+        const x = startX + col * (POSTER_WIDTH + COLUMN_GAP);
+        const randomImage = getNextImage();
+        posters.push(createPoster(x, Math.random() * (height + POSTER_HEIGHT), randomImage ?? undefined));
       }
     };
 
     const drawPoster = (poster: Poster) => {
-      const gradient = context.createLinearGradient(
-        poster.x,
-        poster.y,
-        poster.x,
-        poster.y + poster.height
-      );
-      gradient.addColorStop(0, poster.gradientStart);
-      gradient.addColorStop(1, poster.gradientEnd);
+      context.save();
+      context.beginPath();
+      context.roundRect(poster.x, poster.y, poster.width, poster.height, 6);
+      context.clip();
+      if (poster.image) {
+        context.drawImage(poster.image, poster.x, poster.y, poster.width, poster.height);
+      } else {
+        context.fillStyle = "#1b1b1b";
+        context.fillRect(poster.x, poster.y, poster.width, poster.height);
+      }
+      context.restore();
 
       context.beginPath();
       context.roundRect(poster.x, poster.y, poster.width, poster.height, 6);
-      context.fillStyle = gradient;
-      context.fill();
       context.strokeStyle = "rgba(220,220,220,0.06)";
       context.lineWidth = 1;
       context.stroke();
-
-      context.fillStyle = "rgba(255,255,255,0.88)";
-      context.font = "500 9px Inter, sans-serif";
-      context.textBaseline = "bottom";
-      context.fillText(poster.title, poster.x + 8, poster.y + poster.height - 10, poster.width - 16);
     };
 
     const animate = () => {
       context.clearRect(0, 0, width, height);
-      context.globalAlpha = 0.35;
+      context.globalAlpha = 1;
 
       posters.forEach((poster) => {
         poster.y -= poster.speed;
         if (poster.y + poster.height < 0) {
-          Object.assign(poster, createPoster(height + Math.random() * 120));
+          poster.y = height + Math.random() * 220;
+          poster.image = getNextImage();
+          poster.speed = 0.2 + Math.random() * 0.4;
         }
         drawPoster(poster);
       });
@@ -170,21 +199,30 @@ export default function HomePage() {
       animationId = window.requestAnimationFrame(animate);
     };
 
-    resize();
-    animate();
-    window.addEventListener("resize", resize);
+    const bootstrap = async () => {
+      await loadPosterImages();
+      if (isDisposed) {
+        return;
+      }
+      resize();
+      animate();
+      window.addEventListener("resize", resize);
+    };
+
+    bootstrap();
 
     return () => {
+      isDisposed = true;
       window.cancelAnimationFrame(animationId);
       window.removeEventListener("resize", resize);
     };
   }, []);
 
   return (
-    <main className="relative flex min-h-screen justify-center overflow-hidden bg-[#0a0a0a] px-6">
+    <main className="relative min-h-screen overflow-hidden bg-[#0a0a0a]">
       <canvas
         ref={canvasRef}
-        className="pointer-events-none opacity-[0.35]"
+        className="pointer-events-none opacity-100"
         style={{
           position: "fixed",
           top: 0,
@@ -195,10 +233,8 @@ export default function HomePage() {
         }}
       />
 
-      <section
-        className="relative flex min-h-screen w-full max-w-[400px] flex-col pt-12"
-        style={{ position: "relative", zIndex: 1 }}
-      >
+      <div className="fixed inset-0 z-10" style={{ backgroundColor: "rgba(0,0,0,0.82)" }}>
+        <section className="relative z-20 mx-auto flex min-h-screen w-full max-w-[400px] flex-col px-6 pt-12">
         <p className="mb-6 w-full text-center text-xs uppercase tracking-[0.35em] text-neutral-500">
           WhatNext?
         </p>
@@ -247,7 +283,8 @@ export default function HomePage() {
         <p className="mt-8 text-center text-[11px] leading-relaxed text-neutral-500">
           Al continuar, aceptas nuestros Términos y Política de privacidad.
         </p>
-      </section>
+        </section>
+      </div>
     </main>
   );
 }

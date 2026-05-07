@@ -9,6 +9,7 @@ type Movie = {
   title: string;
   meta: string;
   gradient: [string, string];
+  tmdbId: number;
 };
 
 type RatingValue = {
@@ -23,61 +24,71 @@ const MOVIES: Movie[] = [
     id: "el-padrino",
     title: "El Padrino",
     meta: "Crimen/Drama • 1972",
-    gradient: ["#341212", "#120808"]
+    gradient: ["#341212", "#120808"],
+    tmdbId: 238
   },
   {
     id: "pulp-fiction",
     title: "Pulp Fiction",
     meta: "Crimen • 1994",
-    gradient: ["#4b2b12", "#1d1208"]
+    gradient: ["#4b2b12", "#1d1208"],
+    tmdbId: 680
   },
   {
     id: "inception",
     title: "Inception",
     meta: "Sci-fi • 2010",
-    gradient: ["#12284b", "#08131f"]
+    gradient: ["#12284b", "#08131f"],
+    tmdbId: 27205
   },
   {
     id: "interstellar",
     title: "Interstellar",
     meta: "Sci-fi • 2014",
-    gradient: ["#1a2f4a", "#0a121f"]
+    gradient: ["#1a2f4a", "#0a121f"],
+    tmdbId: 157336
   },
   {
     id: "the-dark-knight",
     title: "The Dark Knight",
     meta: "Acción • 2008",
-    gradient: ["#1b1b1b", "#090909"]
+    gradient: ["#1b1b1b", "#090909"],
+    tmdbId: 155
   },
   {
     id: "forrest-gump",
     title: "Forrest Gump",
     meta: "Drama • 1994",
-    gradient: ["#2b3e54", "#111d2a"]
+    gradient: ["#2b3e54", "#111d2a"],
+    tmdbId: 13
   },
   {
     id: "titanic",
     title: "Titanic",
     meta: "Romance • 1997",
-    gradient: ["#20384e", "#0e1924"]
+    gradient: ["#20384e", "#0e1924"],
+    tmdbId: 597
   },
   {
     id: "matrix",
     title: "Matrix",
     meta: "Sci-fi • 1999",
-    gradient: ["#143322", "#09170f"]
+    gradient: ["#143322", "#09170f"],
+    tmdbId: 603
   },
   {
     id: "gladiator",
     title: "Gladiator",
     meta: "Acción • 2000",
-    gradient: ["#4a3316", "#1c1308"]
+    gradient: ["#4a3316", "#1c1308"],
+    tmdbId: 98
   },
   {
     id: "oppenheimer",
     title: "Oppenheimer",
     meta: "Drama • 2023",
-    gradient: ["#4d1f12", "#1d0d08"]
+    gradient: ["#4d1f12", "#1d0d08"],
+    tmdbId: 872585
   }
 ];
 
@@ -92,6 +103,7 @@ export default function OnboardingValoracionesPage() {
   const router = useRouter();
   const [isExiting, setIsExiting] = useState(false);
   const [ratings, setRatings] = useState<Ratings>(() => createInitialRatings());
+  const [postersByMovieId, setPostersByMovieId] = useState<Record<string, string>>({});
 
   useEffect(() => {
     const stored = window.localStorage.getItem("valoraciones");
@@ -120,6 +132,43 @@ export default function OnboardingValoracionesPage() {
     } catch {
       // Ignore malformed localStorage data.
     }
+  }, []);
+
+  useEffect(() => {
+    let isDisposed = false;
+
+    const loadPosters = async () => {
+      try {
+        const entries = await Promise.all(
+          MOVIES.map(async (movie) => {
+            const response = await fetch(
+              `https://api.themoviedb.org/3/movie/${movie.tmdbId}?api_key=2de8d3ecfb29fc4efda4d7fa09d0920e`
+            );
+            if (!response.ok) {
+              return [movie.id, ""] as const;
+            }
+            const data = (await response.json()) as { poster_path?: string | null };
+            return [movie.id, data.poster_path ? `https://image.tmdb.org/t/p/w92${data.poster_path}` : ""] as const;
+          })
+        );
+
+        if (isDisposed) {
+          return;
+        }
+
+        setPostersByMovieId(Object.fromEntries(entries));
+      } catch {
+        if (!isDisposed) {
+          setPostersByMovieId({});
+        }
+      }
+    };
+
+    loadPosters();
+
+    return () => {
+      isDisposed = true;
+    };
   }, []);
 
   const saveRatings = (next: Ratings) => {
@@ -219,14 +268,26 @@ export default function OnboardingValoracionesPage() {
                     >
                       <div className="flex gap-3">
                         <div
-                          className="flex h-[68px] w-[48px] items-end rounded-md p-1"
-                          style={{
-                            background: `linear-gradient(180deg, ${movie.gradient[0]} 0%, ${movie.gradient[1]} 100%)`
-                          }}
+                          className="flex h-[68px] w-[48px] items-end overflow-hidden rounded-md"
+                          style={
+                            postersByMovieId[movie.id]
+                              ? undefined
+                              : {
+                                  background: `linear-gradient(180deg, ${movie.gradient[0]} 0%, ${movie.gradient[1]} 100%)`
+                                }
+                          }
                         >
-                          <span className="line-clamp-2 text-[8px] leading-tight text-white">
-                            {movie.title}
-                          </span>
+                          {postersByMovieId[movie.id] ? (
+                            <img
+                              src={postersByMovieId[movie.id]}
+                              alt={`Póster de ${movie.title}`}
+                              width={48}
+                              height={68}
+                              className="h-full w-full rounded-md object-cover"
+                            />
+                          ) : (
+                            <span className="line-clamp-2 p-1 text-[8px] leading-tight text-white">{movie.title}</span>
+                          )}
                         </div>
 
                         <div className="min-w-0 flex-1">
