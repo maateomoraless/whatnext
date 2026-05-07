@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef } from "react";
+import { useRouter } from "next/navigation";
 
 type Poster = {
   x: number;
@@ -79,6 +80,7 @@ function GoogleIcon() {
 }
 
 export default function HomePage() {
+  const router = useRouter();
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
   useEffect(() => {
@@ -211,6 +213,7 @@ export default function HomePage() {
         <div className="flex flex-col gap-3">
           <button
             type="button"
+            onClick={() => router.push("/onboarding/nombre")}
             className="flex w-full items-center justify-center gap-2 rounded-xl border border-white bg-white px-4 py-3 text-sm font-medium text-black transition hover:bg-neutral-100"
           >
             <AppleIcon />
@@ -219,6 +222,7 @@ export default function HomePage() {
 
           <button
             type="button"
+            onClick={() => router.push("/onboarding/nombre")}
             className="flex w-full items-center justify-center gap-2 rounded-xl border border-[#2a2a2a] bg-[#1a1a1a] px-4 py-3 text-sm font-medium text-white transition hover:bg-[#202020]"
           >
             <GoogleIcon />
@@ -234,6 +238,7 @@ export default function HomePage() {
 
         <button
           type="button"
+          onClick={() => router.push("/onboarding/nombre")}
           className="w-full rounded-xl border border-[#2a2a2a] bg-transparent px-4 py-3 text-sm font-medium text-white transition hover:bg-[#151515]"
         >
           Continuar con email

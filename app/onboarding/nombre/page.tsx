@@ -19,6 +19,7 @@ export default function OnboardingNombrePage() {
     if (isExiting) {
       return;
     }
+    window.localStorage.setItem("nombre", name.trim());
     setIsExiting(true);
   };
 
