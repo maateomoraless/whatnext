@@ -505,23 +505,27 @@ export default function AmigosPage() {
       return;
     }
 
+    const friend = friendSheet;
     const ac = new AbortController();
     const key = TMDB_API_KEY;
     const base = `https://api.themoviedb.org/3`;
 
     async function loadFriendVisuals() {
       const common = await Promise.all(
-        friendSheet.commonMedia.map(async (m, i) => {
+        friend.commonMedia.map(async (m, i) => {
           const url =
             m.media === "movie"
               ? `${base}/movie/${m.tmdbId}?api_key=${key}&language=es-ES`
               : `${base}/tv/${m.tmdbId}?api_key=${key}&language=es-ES`;
           const data = await fetchJson<{ poster_path?: string | null }>(url, ac.signal);
-          return { key: `common-${friendSheet.id}-${i}`, path: data?.poster_path ?? null } satisfies PosterSlot;
+          return {
+            key: `common-${friend.id}-${i}`,
+            path: data?.poster_path ?? null
+          } satisfies PosterSlot;
         })
       );
 
-      const filteredReco = filterRecoNotSeenByUser(friendSheet.recoHighRatedMovieIds).slice(0, 3);
+      const filteredReco = filterRecoNotSeenByUser(friend.recoHighRatedMovieIds).slice(0, 3);
       const reco = await Promise.all(
         filteredReco.map(async (movieId) => {
           const url = `${base}/movie/${movieId}?api_key=${key}&language=es-ES`;
@@ -558,35 +562,46 @@ export default function AmigosPage() {
     if (!sheet) {
       return;
     }
+
+    const activeSheet = sheet;
+    const { item, media } = activeSheet;
     const ac = new AbortController();
     const base = `https://api.themoviedb.org/3`;
     const key = TMDB_API_KEY;
-    const { item, media } = sheet;
+    const tmdbNumericId = item?.id;
 
     async function loadDetail() {
+      if (tmdbNumericId == null || !Number.isFinite(tmdbNumericId)) {
+        setDetailLoading(false);
+        return;
+      }
+
       setDetailLoading(true);
       if (media === "movie") {
         const [mov, prov] = await Promise.all([
-          fetchJson<MovieDetail>(`${base}/movie/${item.id}?api_key=${key}&language=es-ES`, ac.signal),
+          fetchJson<MovieDetail>(`${base}/movie/${tmdbNumericId}?api_key=${key}&language=es-ES`, ac.signal),
           fetchJson<WatchProvidersResponse>(
-            `${base}/movie/${item.id}/watch/providers?api_key=${key}`,
+            `${base}/movie/${tmdbNumericId}/watch/providers?api_key=${key}`,
             ac.signal
           )
         ]);
         if (!ac.signal.aborted) {
           setDetailMovie(mov);
           setDetailTv(null);
-          setProviders(collectProviderNames(prov));
+          setProviders(collectProviderNames(prov ?? null));
         }
       } else {
         const [tv, prov] = await Promise.all([
-          fetchJson<TvDetail>(`${base}/tv/${item.id}?api_key=${key}&language=es-ES`, ac.signal),
-          fetchJson<WatchProvidersResponse>(`${base}/tv/${item.id}/watch/providers?api_key=${key}`, ac.signal)
+          fetchJson<TvDetail>(`${base}/tv/${tmdbNumericId}?api_key=${key}&language=es-ES`, ac.signal),
+          fetchJson<WatchProvidersResponse>(
+            `${base}/tv/${tmdbNumericId}/watch/providers?api_key=${key}`,
+            ac.signal
+          )
         ]);
         if (!ac.signal.aborted) {
           setDetailTv(tv);
           setDetailMovie(null);
-          setProviders(collectProviderNames(prov));
+          setProviders(collectProviderNames(prov ?? null));
         }
       }
       if (!ac.signal.aborted) {
