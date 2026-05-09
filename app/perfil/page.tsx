@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -699,9 +700,11 @@ export default function PerfilPage() {
                 >
                   <div className="h-14 w-10 flex-shrink-0 overflow-hidden rounded-md border border-[#2a2a2a] bg-[#1a1a1a]">
                     {row.posterPath ? (
-                      <img
+                      <Image
                         src={`https://image.tmdb.org/t/p/w92${row.posterPath}`}
                         alt=""
+                        width={92}
+                        height={138}
                         className="h-full w-full object-cover"
                       />
                     ) : (
@@ -735,9 +738,11 @@ export default function PerfilPage() {
                 >
                   <div className="h-14 w-10 flex-shrink-0 overflow-hidden rounded-md border border-[#2a2a2a] bg-[#1a1a1a]">
                     {row.posterPath ? (
-                      <img
+                      <Image
                         src={`https://image.tmdb.org/t/p/w92${row.posterPath}`}
                         alt=""
+                        width={92}
+                        height={138}
                         className="h-full w-full object-cover"
                       />
                     ) : (

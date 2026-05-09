@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import {
@@ -101,12 +102,12 @@ function HorizontalPosterRow({
             >
               <div className="aspect-[2/3] w-full overflow-hidden rounded-xl border border-[#2a2a2a] bg-[#1a1a1a]">
                 {item.poster_path ? (
-                  <img
+                  <Image
                     src={`https://image.tmdb.org/t/p/w342${item.poster_path}`}
                     alt=""
+                    width={342}
+                    height={513}
                     className="h-full w-full object-cover"
-                    width={100}
-                    height={150}
                   />
                 ) : (
                   <div className="flex h-full w-full items-center justify-center px-1 text-center text-[10px] text-neutral-600">
@@ -369,9 +370,11 @@ export default function BuscarPage() {
                     >
                       <div className="aspect-[2/3] w-full overflow-hidden rounded-lg border border-[#2a2a2a] bg-[#141414]">
                         {item.poster_path ? (
-                          <img
+                          <Image
                             src={`https://image.tmdb.org/t/p/w342${item.poster_path}`}
                             alt=""
+                            width={342}
+                            height={513}
                             className="h-full w-full object-cover"
                           />
                         ) : (

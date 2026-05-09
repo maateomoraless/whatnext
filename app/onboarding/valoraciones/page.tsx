@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { AnimatePresence, motion } from "framer-motion";
 
@@ -278,11 +279,11 @@ export default function OnboardingValoracionesPage() {
                           }
                         >
                           {postersByMovieId[movie.id] ? (
-                            <img
+                            <Image
                               src={postersByMovieId[movie.id]}
                               alt={`Póster de ${movie.title}`}
-                              width={48}
-                              height={68}
+                              width={92}
+                              height={138}
                               className="h-full w-full rounded-md object-cover"
                             />
                           ) : (

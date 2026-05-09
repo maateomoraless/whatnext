@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import {
@@ -384,7 +385,13 @@ function FriendProfileSheet({
                   className="h-[110px] w-[73px] flex-shrink-0 overflow-hidden rounded-lg border border-[#2a2a2a] bg-[#1a1a1a]"
                 >
                   {p.path ? (
-                    <img src={`https://image.tmdb.org/t/p/w185${p.path}`} alt="" className="h-full w-full object-cover" />
+                    <Image
+                      src={`https://image.tmdb.org/t/p/w185${p.path}`}
+                      alt=""
+                      width={185}
+                      height={278}
+                      className="h-full w-full object-cover"
+                    />
                   ) : (
                     <div className="flex h-full items-center justify-center text-[10px] text-neutral-600">—</div>
                   )}
@@ -405,9 +412,11 @@ function FriendProfileSheet({
                   >
                     <div className="h-[110px] w-[73px] flex-shrink-0 overflow-hidden rounded-lg border border-[#2a2a2a] bg-[#1a1a1a]">
                       {p.path ? (
-                        <img
+                        <Image
                           src={`https://image.tmdb.org/t/p/w185${p.path}`}
                           alt=""
+                          width={185}
+                          height={278}
                           className="h-full w-full object-cover"
                         />
                       ) : (
@@ -707,9 +716,11 @@ export default function AmigosPage() {
                   </div>
                   <div className="h-[52px] w-[35px] flex-shrink-0 overflow-hidden rounded-md border border-[#2a2a2a] bg-[#1a1a1a]">
                     {activityPosters[act.id] ? (
-                      <img
+                      <Image
                         src={`https://image.tmdb.org/t/p/w92${activityPosters[act.id]}`}
                         alt=""
+                        width={92}
+                        height={138}
                         className="h-full w-full object-cover"
                       />
                     ) : (

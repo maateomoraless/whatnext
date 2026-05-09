@@ -1,5 +1,7 @@
 "use client";
 
+import Image from "next/image";
+
 export const TMDB_API_KEY =
   typeof process !== "undefined" && process.env.NEXT_PUBLIC_TMDB_API_KEY?.trim()
     ? process.env.NEXT_PUBLIC_TMDB_API_KEY.trim()
@@ -189,12 +191,12 @@ export function TmdbDetailSheet({
         <div className="px-5 pb-8 pt-4">
           <div className="mx-auto mb-4 flex max-w-[200px] justify-center overflow-hidden rounded-xl border border-[#2a2a2a] bg-[#1a1a1a]">
             {posterPath ? (
-              <img
+              <Image
                 src={`https://image.tmdb.org/t/p/w500${posterPath}`}
                 alt=""
+                width={500}
+                height={750}
                 className="w-full object-cover"
-                width={200}
-                height={300}
               />
             ) : (
               <div className="flex aspect-[2/3] w-full items-center justify-center text-neutral-600">Sin imagen</div>

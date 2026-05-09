@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 
@@ -924,11 +925,11 @@ function MovieCard({
     <article key={item.id} className="w-[140px] flex-shrink-0">
       <div className="relative h-[190px] w-full overflow-hidden rounded-xl border border-[#2a2a2a]">
         {item.posterPath != null && item.posterPath !== "" ? (
-          <img
+          <Image
             src={`https://image.tmdb.org/t/p/w342${item.posterPath}`}
             alt={`Póster de ${item.title}`}
-            width={140}
-            height={190}
+            width={342}
+            height={513}
             className="h-full w-full object-cover"
           />
         ) : (
