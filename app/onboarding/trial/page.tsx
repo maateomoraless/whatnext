@@ -22,39 +22,25 @@ export default function OnboardingTrialPage() {
           🎬
         </div>
 
-        <h1 className="text-center text-4xl font-semibold leading-tight text-white">
-          7 días gratis.
+        <h1 className="text-center text-3xl font-semibold leading-tight text-white sm:text-4xl">
+          WhatNext? es gratis.
         </h1>
-        <h2 className="mb-4 text-center text-4xl font-semibold leading-tight text-white">
-          Sin compromiso.
-        </h2>
+        <p className="mt-4 mb-8 text-center text-base leading-relaxed text-neutral-400">
+          Sin anuncios. Sin suscripción. Solo tus películas.
+        </p>
 
-        <p className="text-center text-sm text-neutral-400">Después solo 2,99 €/mes.</p>
-        <p className="mb-8 text-center text-sm text-neutral-400">Menos que una palomita de cine.</p>
-
-        <div className="mb-5 w-full rounded-2xl bg-[#1a1a1a] px-4 py-4">
-          <div className="flex items-center justify-between text-sm">
-            <span className="text-neutral-200">Prueba gratuita</span>
-            <span className="font-medium text-[#0F6E56]">7 días gratis</span>
-          </div>
-          <div className="my-3 h-px w-full bg-[#2a2a2a]" />
-          <div className="flex items-center justify-between text-sm">
-            <span className="text-neutral-200">Después</span>
-            <span className="font-medium text-white">2,99 €/mes</span>
-          </div>
-        </div>
-
-        <div className="mb-8 flex w-full items-center justify-between text-xs text-neutral-400">
-          <span>✓ Cancela cuando quieras</span>
-          <span>✓ Sin publicidad</span>
-        </div>
+        <ul className="mb-8 w-full space-y-3 text-left text-sm text-neutral-200">
+          <li>✓ Recomendaciones personalizadas</li>
+          <li>✓ Todas tus plataformas</li>
+          <li>✓ Actualizado con tus gustos</li>
+        </ul>
 
         <button
           type="button"
           onClick={() => router.push("/dashboard")}
           className="w-full rounded-xl bg-white px-4 py-3 text-sm font-semibold text-black transition hover:bg-neutral-100"
         >
-          Empezar gratis →
+          Empezar ahora →
         </button>
       </motion.section>
     </main>
