@@ -2,7 +2,9 @@
 
 import Image from "next/image";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
+import { supabase } from "@/lib/supabase";
 
 type MatchItem = {
   id: string;
@@ -995,6 +997,7 @@ function MovieCard({
 }
 
 export default function DashboardPage() {
+  const router = useRouter();
   const [name, setName] = useState("");
   const [selectedPlatforms, setSelectedPlatforms] = useState<string[]>([]);
   const [gustos, setGustos] = useState<GustosSelection>({});
@@ -1028,6 +1031,32 @@ export default function DashboardPage() {
   };
 
   useEffect(() => {
+    let cancelled = false;
+
+    void supabase.auth.getUser().then(({ data: { user } }) => {
+      if (cancelled) {
+        return;
+      }
+      if (!user) {
+        router.replace("/");
+        return;
+      }
+
+      const fromMeta =
+        typeof user.user_metadata?.full_name === "string" ? user.user_metadata.full_name.trim() : "";
+      const display = fromMeta || user.email || "";
+      if (display) {
+        window.localStorage.setItem("nombre", display);
+        setName(display);
+      }
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [router]);
+
+  useEffect(() => {
     const storedName = window.localStorage.getItem("nombre");
     const storedPlatforms = window.localStorage.getItem("plataformas");
     const storedGustos = window.localStorage.getItem("gustos");
@@ -1035,7 +1064,7 @@ export default function DashboardPage() {
     const storedWatchlist = window.localStorage.getItem("watchlist");
 
     if (storedName) {
-      setName(storedName);
+      setName((prev) => (prev ? prev : storedName));
     }
 
     if (storedPlatforms) {

@@ -1,12 +1,23 @@
 "use client";
 
-import { FormEvent, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { AnimatePresence, motion } from "framer-motion";
 
 export default function OnboardingNombrePage() {
   const router = useRouter();
   const [name, setName] = useState("");
+
+  useEffect(() => {
+    try {
+      const stored = window.localStorage.getItem("nombre");
+      if (stored) {
+        setName(stored);
+      }
+    } catch {
+      /* ignore */
+    }
+  }, []);
   const [isExiting, setIsExiting] = useState(false);
   const waveEmoji = "\u{1F44B}";
 

@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { fetchJson, TMDB_API_KEY } from "@/components/TmdbDetailSheet";
 import type { MediaType } from "@/components/TmdbDetailSheet";
+import { supabase } from "@/lib/supabase";
 
 type GustosSelection = Record<string, string[]>;
 
@@ -247,9 +248,19 @@ function ProfileIcon({ active = false }: { active?: boolean }) {
   );
 }
 
+type AuthProfile = {
+  fullName: string;
+  firstName: string;
+  lastName: string;
+  email: string;
+};
+
 export default function PerfilPage() {
   const router = useRouter();
   const [nombre, setNombre] = useState("");
+  const [apellidosLocal, setApellidosLocal] = useState("");
+  const [emailLocal, setEmailLocal] = useState("");
+  const [authProfile, setAuthProfile] = useState<AuthProfile | null>(null);
   const [platformIds, setPlatformIds] = useState<string[]>([]);
   const [gustos, setGustos] = useState<GustosSelection>({});
   const [valoraciones, setValoraciones] = useState<Record<string, RatingValue>>({});
@@ -260,10 +271,31 @@ export default function PerfilPage() {
   const [watchlistRows, setWatchlistRows] = useState<WatchlistRow[]>([]);
   const [watchlistLoading, setWatchlistLoading] = useState(false);
 
+  const reloadAuthProfile = useCallback(async () => {
+    const { data } = await supabase.auth.getUser();
+    const user = data.user;
+    if (!user) {
+      setAuthProfile(null);
+      return;
+    }
+    const meta = user.user_metadata ?? {};
+    const fullName = typeof meta.full_name === "string" ? meta.full_name : "";
+    const firstName = typeof meta.first_name === "string" ? meta.first_name : "";
+    const lastName = typeof meta.last_name === "string" ? meta.last_name : "";
+    setAuthProfile({
+      fullName,
+      firstName,
+      lastName,
+      email: user.email ?? ""
+    });
+  }, []);
+
   const reloadStorage = useCallback(() => {
     try {
       const n = window.localStorage.getItem("nombre");
       setNombre(n ?? "");
+      setApellidosLocal(window.localStorage.getItem("apellidos") ?? "");
+      setEmailLocal(window.localStorage.getItem("email") ?? "");
       const p = window.localStorage.getItem("plataformas");
       if (p) {
         const parsed = JSON.parse(p);
@@ -308,12 +340,43 @@ export default function PerfilPage() {
 
   useEffect(() => {
     reloadStorage();
-    const onFocus = () => reloadStorage();
+    void reloadAuthProfile();
+    const onFocus = () => {
+      reloadStorage();
+      void reloadAuthProfile();
+    };
     window.addEventListener("focus", onFocus);
     return () => window.removeEventListener("focus", onFocus);
-  }, [reloadStorage]);
+  }, [reloadStorage, reloadAuthProfile]);
 
-  const handle = useMemo(() => `@${slugFromNombre(nombre)}`, [nombre]);
+  const displayNombreCompleto = useMemo(() => {
+    const fromParts = [authProfile?.firstName, authProfile?.lastName].filter(Boolean).join(" ").trim();
+    if (fromParts.length > 0) {
+      return fromParts;
+    }
+    if (authProfile?.fullName?.trim()) {
+      return authProfile.fullName.trim();
+    }
+    return `${nombre.trim()} ${apellidosLocal.trim()}`.trim();
+  }, [authProfile, nombre, apellidosLocal]);
+
+  const displayApellidos = useMemo(() => {
+    const fromAuth = authProfile?.lastName?.trim();
+    if (fromAuth) {
+      return fromAuth;
+    }
+    return apellidosLocal.trim();
+  }, [authProfile, apellidosLocal]);
+
+  const displayEmail = useMemo(() => {
+    const fromAuth = authProfile?.email?.trim();
+    if (fromAuth) {
+      return fromAuth;
+    }
+    return emailLocal.trim();
+  }, [authProfile, emailLocal]);
+
+  const handle = useMemo(() => `@${slugFromNombre(displayNombreCompleto || nombre)}`, [displayNombreCompleto, nombre]);
 
   const ratedEntries = useMemo(
     () =>
@@ -531,10 +594,25 @@ export default function PerfilPage() {
 
         <section className="mb-10 flex flex-col items-center">
           <div className="flex h-24 w-24 items-center justify-center rounded-full bg-[#262626] text-2xl font-bold text-white">
-            {initialsFromNombre(nombre)}
+            {initialsFromNombre(displayNombreCompleto || nombre)}
           </div>
-          <h1 className="mt-4 text-center text-2xl font-semibold text-white">{nombre.trim() || "Tu nombre"}</h1>
-          <p className="mt-1 text-sm text-neutral-500">{handle}</p>
+          <dl className="mt-4 w-full space-y-3 text-center">
+            <div>
+              <dt className="text-[11px] uppercase tracking-wide text-neutral-500">Nombre completo</dt>
+              <dd className="mt-1 text-xl font-semibold text-white">
+                {displayNombreCompleto || "—"}
+              </dd>
+            </div>
+            <div>
+              <dt className="text-[11px] uppercase tracking-wide text-neutral-500">Apellidos</dt>
+              <dd className="mt-1 text-base text-neutral-200">{displayApellidos || "—"}</dd>
+            </div>
+            <div>
+              <dt className="text-[11px] uppercase tracking-wide text-neutral-500">Email</dt>
+              <dd className="mt-1 break-all text-sm text-neutral-300">{displayEmail || "—"}</dd>
+            </div>
+          </dl>
+          <p className="mt-3 text-sm text-neutral-500">{handle}</p>
 
           <div className="mt-6 grid w-full grid-cols-3 gap-2">
             <div className="rounded-xl border border-[#2a2a2a] bg-[#101010] px-2 py-3 text-center">
