@@ -1,6 +1,7 @@
 "use client";
 
 import Image from "next/image";
+import { useCallback, useEffect, useState } from "react";
 
 export const TMDB_API_KEY =
   typeof process !== "undefined" && process.env.NEXT_PUBLIC_TMDB_API_KEY?.trim()
@@ -125,7 +126,8 @@ export function TmdbDetailSheet({
   onToggleWatchlist,
   starsPanelOpen,
   onToggleStarsPanel,
-  persistRating
+  persistRating,
+  shareMatchPercent
 }: {
   sheet: SheetState | null;
   onClose: () => void;
@@ -138,9 +140,68 @@ export function TmdbDetailSheet({
   starsPanelOpen: boolean;
   onToggleStarsPanel: () => void;
   persistRating: (stars: number) => void;
+  /** Si es un número, se incluye en el texto al compartir; si no se pasa, se omite el porcentaje. */
+  shareMatchPercent?: number | null;
 }) {
+  const [copyToast, setCopyToast] = useState(false);
+
+  useEffect(() => {
+    if (!copyToast) {
+      return undefined;
+    }
+    const t = window.setTimeout(() => setCopyToast(false), 2200);
+    return () => window.clearTimeout(t);
+  }, [copyToast]);
+
+  const buildShareText = useCallback(() => {
+    if (!sheet) {
+      return "";
+    }
+    const { item, media } = sheet;
+    const title =
+      media === "movie" ? detailMovie?.title ?? item.title ?? "Sin título" : detailTv?.name ?? item.name ?? "Sin título";
+    const platform = providers[0] ?? "streaming";
+    const base = `Te recomiendo ver ${title} en ${platform}`;
+    const mid =
+      typeof shareMatchPercent === "number" && Number.isFinite(shareMatchPercent)
+        ? ` — ${Math.round(shareMatchPercent)}% de match`
+        : "";
+    return `${base}${mid} en WhatNext? 🎬 whatnext-gray.vercel.app`;
+  }, [sheet, detailMovie, detailTv, providers, shareMatchPercent]);
+
+  const handleShare = useCallback(async () => {
+    const text = buildShareText();
+    if (!text) {
+      return;
+    }
+    try {
+      if (typeof navigator !== "undefined" && typeof navigator.share === "function") {
+        await navigator.share({ title: "WhatNext?", text });
+        return;
+      }
+    } catch (err) {
+      if (err instanceof DOMException && err.name === "AbortError") {
+        return;
+      }
+      // falló share o no disponible; intentar portapapeles
+    }
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopyToast(true);
+    } catch {
+      setCopyToast(true);
+    }
+  }, [buildShareText]);
+
   if (!sheet) {
-    return null;
+    return copyToast ? (
+      <div
+        role="status"
+        className="fixed bottom-24 left-1/2 z-50 -translate-x-1/2 rounded-full border border-[#333] bg-[#1a1a1a] px-4 py-2 text-sm text-white shadow-lg"
+      >
+        ¡Copiado!
+      </div>
+    ) : null;
   }
 
   const { item, media } = sheet;
@@ -247,6 +308,14 @@ export function TmdbDetailSheet({
                   {inWatchlist ? "Quitar de watchlist" : "Añadir a watchlist"}
                 </button>
 
+                <button
+                  type="button"
+                  onClick={() => void handleShare()}
+                  className="w-full rounded-xl border border-[#333] bg-[#1a1a1a] py-3 text-sm font-medium text-neutral-200 transition hover:border-neutral-500"
+                >
+                  Recomendar
+                </button>
+
                 <div>
                   <button
                     type="button"
@@ -279,6 +348,15 @@ export function TmdbDetailSheet({
           )}
         </div>
       </div>
+
+      {copyToast ? (
+        <div
+          role="status"
+          className="fixed bottom-24 left-1/2 z-50 -translate-x-1/2 rounded-full border border-[#333] bg-[#1a1a1a] px-4 py-2 text-sm text-white shadow-lg"
+        >
+          ¡Copiado!
+        </div>
+      ) : null}
     </>
   );
 }

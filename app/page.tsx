@@ -290,7 +290,7 @@ export default function HomePage() {
 
       <div className="fixed inset-0 z-10" style={{ backgroundColor: "rgba(0,0,0,0.82)" }}>
         <section className="relative z-20 mx-auto flex min-h-screen w-full max-w-[400px] flex-col items-center justify-center px-6 py-12">
-          <p className="mb-6 w-full text-center text-xs uppercase tracking-[0.35em] text-neutral-500">
+          <p className="mb-6 w-full text-center text-xs uppercase tracking-[0.35em] text-neutral-500 select-none">
             WhatNext?
           </p>
 
@@ -382,7 +382,7 @@ export default function HomePage() {
           aria-labelledby="register-title"
         >
           <div className="relative z-40 mx-auto w-full max-w-[400px] rounded-2xl border border-[#2a2a2a] bg-[#0f0f0f]/95 p-6 shadow-2xl backdrop-blur-sm">
-            <p className="mb-2 text-center text-xs uppercase tracking-[0.35em] text-neutral-500">WhatNext?</p>
+            <p className="mb-2 text-center text-xs uppercase tracking-[0.35em] text-neutral-500 select-none">WhatNext?</p>
             <h2 id="register-title" className="mb-6 text-center text-xl font-semibold text-white">
               Crear cuenta
             </h2>

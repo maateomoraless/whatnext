@@ -163,7 +163,7 @@ export default function PerfilWatchlistPage() {
           ← Volver
         </button>
 
-        <p className="mb-6 w-full text-center text-xs uppercase tracking-[0.35em] text-neutral-500">WhatNext?</p>
+        <p className="mb-6 w-full text-center text-xs uppercase tracking-[0.35em] text-neutral-500 select-none">WhatNext?</p>
 
         <header className="mb-6">
           <h1 className="text-2xl font-semibold text-white">Tu watchlist</h1>

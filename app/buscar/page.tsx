@@ -18,6 +18,7 @@ import {
   type TvDetail,
   type WatchProvidersResponse
 } from "@/components/TmdbDetailSheet";
+import { bumpMovieStreak } from "@/lib/movieStreak";
 
 function HomeIcon({ active = false }: { active?: boolean }) {
   return (
@@ -325,6 +326,7 @@ export default function BuscarPage() {
       }
       setStarsPanelOpen(false);
       setSheet(null);
+      bumpMovieStreak();
     },
     [sheet, detailMovie, detailTv]
   );
@@ -334,7 +336,7 @@ export default function BuscarPage() {
   return (
     <main className="flex min-h-screen justify-center bg-[#0a0a0a] px-6 pb-28 text-white">
       <div className="relative w-full max-w-[400px] pt-10">
-        <p className="mb-6 w-full text-center text-xs uppercase tracking-[0.35em] text-neutral-500">WhatNext?</p>
+        <p className="mb-6 w-full text-center text-xs uppercase tracking-[0.35em] text-neutral-500 select-none">WhatNext?</p>
 
         <label className="mb-6 block">
           <span className="sr-only">Buscar</span>

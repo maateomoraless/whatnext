@@ -3,7 +3,8 @@
 import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { bumpMovieStreak, readEffectiveMovieStreak } from "@/lib/movieStreak";
 import { supabase } from "@/lib/supabase";
 import {
   TmdbDetailSheet,
@@ -39,14 +40,6 @@ type MatchItem = {
   originalLanguage?: string;
 };
 
-type FriendWatch = {
-  id: string;
-  name: string;
-  movie: string;
-  stars: number;
-  avatar: string;
-};
-
 type RatingValue = {
   rating: number;
   unseen: boolean;
@@ -66,6 +59,7 @@ type TmdbDiscoverResponse = {
     title?: string;
     name?: string;
     poster_path: string | null;
+    overview?: string;
     vote_average: number;
     genre_ids?: number[];
     popularity?: number;
@@ -156,12 +150,6 @@ const PROVIDER_COLOR_BY_NAME: Record<string, string> = {
   Filmin: "#e8175d",
   "No disponible": "#737373"
 };
-
-const FRIENDS_WATCHING: FriendWatch[] = [
-  { id: "lucia", name: "Lucía", movie: "Dune 2", stars: 4, avatar: "L" },
-  { id: "carlos", name: "Carlos", movie: "The Bear", stars: 5, avatar: "C" },
-  { id: "maria", name: "María", movie: "Oppenheimer", stars: 4, avatar: "M" }
-];
 
 const MOVIE_META_BY_ID: Record<string, { title: string; genre: string }> = {
   "el-padrino": { title: "El Padrino", genre: "Crimen" },
@@ -467,9 +455,9 @@ async function fetchMoviesForUser(
       watch_region: "ES",
       with_watch_providers: providerPipe,
       sort_by: "vote_average.desc",
-      page: String(page)
+      page: String(page),
+      "vote_count.gte": "100"
     });
-    params.set("vote_count.gte", "100");
 
     if (genrePart.length > 0) {
       params.set("with_genres", genrePart.join(","));
@@ -696,9 +684,9 @@ async function fetchNovedadesMovies(
       watch_region: "ES",
       with_watch_providers: providerPipe,
       sort_by: "popularity.desc",
-      page: String(page)
+      page: String(page),
+      "primary_release_date.gte": "2024-01-01"
     });
-    params.set("primary_release_date.gte", "2024-01-01");
 
     const url = `https://api.themoviedb.org/3/discover/movie?${params.toString()}`;
     const res = await fetchTmdbJson<TmdbDiscoverResponse>(`discover/novedades p${page}`, url, signal);
@@ -852,6 +840,55 @@ function scoreAndSortMatch(
     ...row.item,
     match: normalizarMatch62699(row.raw, raws)
   }));
+}
+
+type MoodPick = { id: string; label: string; withGenres: string; sortBy: string };
+
+const MOOD_CHOICES: MoodPick[] = [
+  { id: "reir", label: "Quiero reír", withGenres: "35", sortBy: "vote_average.desc" },
+  { id: "emocionarme", label: "Quiero emocionarme", withGenres: "18", sortBy: "vote_average.desc" },
+  { id: "sorprenderme", label: "Quiero sorprenderme", withGenres: "878|14", sortBy: "vote_average.desc" },
+  { id: "accion", label: "Quiero acción", withGenres: "28", sortBy: "popularity.desc" },
+  { id: "pensar", label: "Quiero pensar", withGenres: "9648|53", sortBy: "vote_average.desc" }
+];
+
+type MoodMovie = {
+  id: number;
+  title: string;
+  overview: string;
+  posterPath: string | null;
+  genreIds: number[];
+};
+
+async function fetchMoodRecommendation(pick: MoodPick, apiKey: string, signal: AbortSignal): Promise<MoodMovie | null> {
+  const page = 1 + (pick.id.length % 4);
+  const params = new URLSearchParams({
+    api_key: apiKey,
+    language: "es-ES",
+    with_genres: pick.withGenres,
+    sort_by: pick.sortBy,
+    page: String(page),
+    "vote_count.gte": "150",
+    include_adult: "false"
+  });
+  const url = `https://api.themoviedb.org/3/discover/movie?${params.toString()}`;
+  const res = await fetchTmdbJson<TmdbDiscoverResponse>("discover/mood", url, signal);
+  if (!res.ok) {
+    return null;
+  }
+  const list = res.data.results ?? [];
+  const withPoster = list.find((m) => m.poster_path != null && m.poster_path !== "");
+  const chosen = withPoster ?? list[0];
+  if (!chosen) {
+    return null;
+  }
+  return {
+    id: chosen.id,
+    title: chosen.title ?? chosen.name ?? "Sin título",
+    overview: (chosen.overview ?? "").trim() || "Sin sinopsis disponible.",
+    posterPath: chosen.poster_path,
+    genreIds: chosen.genre_ids ?? []
+  };
 }
 
 function HomeIcon({ active = false }: { active?: boolean }) {
@@ -1080,6 +1117,13 @@ export default function DashboardPage() {
   const [providers, setProviders] = useState<string[]>([]);
   const [detailLoading, setDetailLoading] = useState(false);
   const [starsPanelOpen, setStarsPanelOpen] = useState(false);
+  const [streakDays, setStreakDays] = useState(0);
+  const [sheetShareMatch, setSheetShareMatch] = useState<number | undefined>(undefined);
+  const [moodOpen, setMoodOpen] = useState(false);
+  const [moodLoading, setMoodLoading] = useState(false);
+  const [moodMovie, setMoodMovie] = useState<MoodMovie | null>(null);
+  const [moodPick, setMoodPick] = useState<MoodPick | null>(null);
+  const moodAbortRef = useRef<AbortController | null>(null);
 
   const persistTmdbRating = (item: MatchItem, stars: number) => {
     const key = `tmdb-${item.tmdbId}`;
@@ -1096,6 +1140,7 @@ export default function DashboardPage() {
       window.localStorage.setItem("valoraciones", JSON.stringify(next));
       return next;
     });
+    setStreakDays(bumpMovieStreak());
   };
 
   useEffect(() => {
@@ -1123,6 +1168,17 @@ export default function DashboardPage() {
       cancelled = true;
     };
   }, [router]);
+
+  useEffect(() => {
+    setStreakDays(readEffectiveMovieStreak());
+  }, []);
+
+  useEffect(
+    () => () => {
+      moodAbortRef.current?.abort();
+    },
+    []
+  );
 
   useEffect(() => {
     const storedName = window.localStorage.getItem("nombre");
@@ -1415,24 +1471,40 @@ export default function DashboardPage() {
     });
   };
 
-  const addToWatchlist = (id: string) => {
-    setWatchlist((prev) => {
-      if (prev.includes(id)) {
-        return prev;
-      }
-      const next = [...prev, id];
-      const deduped = Array.from(new Set(next));
-      window.localStorage.setItem("watchlist", JSON.stringify(deduped));
-      return deduped;
-    });
-  };
-
   const openSheet = useCallback((item: MatchItem) => {
     setSheet({ item: matchItemToMultiSearch(item), media: item.mediaType });
+    setSheetShareMatch(typeof item.match === "number" && Number.isFinite(item.match) ? item.match : undefined);
     setStarsPanelOpen(false);
     setDetailMovie(null);
     setDetailTv(null);
     setProviders([]);
+  }, []);
+
+  const openMoodModal = useCallback((pick: MoodPick) => {
+    moodAbortRef.current?.abort();
+    const ac = new AbortController();
+    moodAbortRef.current = ac;
+    setMoodPick(pick);
+    setMoodOpen(true);
+    setMoodLoading(true);
+    setMoodMovie(null);
+    void (async () => {
+      const mv = await fetchMoodRecommendation(pick, getTmdbApiKey(), ac.signal);
+      if (ac.signal.aborted) {
+        return;
+      }
+      setMoodMovie(mv);
+      setMoodLoading(false);
+    })();
+  }, []);
+
+  const closeMoodModal = useCallback(() => {
+    moodAbortRef.current?.abort();
+    moodAbortRef.current = null;
+    setMoodOpen(false);
+    setMoodLoading(false);
+    setMoodMovie(null);
+    setMoodPick(null);
   }, []);
 
   useEffect(() => {
@@ -1545,6 +1617,8 @@ export default function DashboardPage() {
 
       setStarsPanelOpen(false);
       setSheet(null);
+      setSheetShareMatch(undefined);
+      setStreakDays(bumpMovieStreak());
     },
     [sheet, detailMovie, detailTv]
   );
@@ -1552,7 +1626,7 @@ export default function DashboardPage() {
   return (
     <main className="flex min-h-screen justify-center bg-[#0a0a0a] px-6 text-white">
       <section className="relative w-full max-w-[400px] pt-10 pb-28">
-        <p className="mb-6 w-full text-center text-xs uppercase tracking-[0.35em] text-neutral-500">
+        <p className="mb-6 w-full text-center text-xs uppercase tracking-[0.35em] text-neutral-500 select-none">
           WhatNext?
         </p>
 
@@ -1560,7 +1634,18 @@ export default function DashboardPage() {
           <h1 className="text-3xl font-semibold leading-tight text-white">
             {greeting}, {name || "..."}
           </h1>
-          <p className="mt-2 text-sm text-neutral-400">Tu lista de hoy:</p>
+          <article className="mt-4 rounded-xl border border-[#2a2a2a] bg-[#101010] px-4 py-3">
+            <p className="text-[11px] font-semibold uppercase tracking-wide text-neutral-500">Racha de películas</p>
+            <p className="mt-1 text-2xl font-bold tabular-nums text-white">{streakDays}</p>
+            <p className="mt-1 text-xs leading-relaxed text-neutral-400">
+              {streakDays === 0
+                ? "Valora o marca pelis como vistas cada día para subir tu racha."
+                : streakDays === 1
+                  ? "1 día seguido con actividad."
+                  : `${streakDays} días seguidos con actividad.`}
+            </p>
+          </article>
+          <p className="mt-6 text-sm text-neutral-400">Tu lista de hoy:</p>
         </header>
 
         <section className="mb-8">
@@ -1603,6 +1688,17 @@ export default function DashboardPage() {
         </section>
 
         <section className="mb-8">
+          <h2 className="mb-3 text-base font-semibold text-white">Modo pareja</h2>
+          <p className="mb-3 text-xs text-neutral-400">Encuentra una película que os guste a los dos</p>
+          <Link
+            href="/pareja"
+            className="block w-full rounded-xl bg-white py-3 text-center text-sm font-semibold text-black transition hover:bg-neutral-100"
+          >
+            Busquemos una peli juntos
+          </Link>
+        </section>
+
+        <section className="mb-8">
           <h2 className="mb-3 text-base font-semibold text-white">
             Porque te gustó {becauseLikedFilmTitle}
           </h2>
@@ -1618,6 +1714,85 @@ export default function DashboardPage() {
               ))
             ) : becauseYouLikedItems.length > 0 ? (
               becauseYouLikedItems.map((item) => (
+                <MovieCard
+                  key={item.id}
+                  item={item}
+                  isSaved={watchlist.includes(item.id)}
+                  onToggleWatchlist={toggleWatchlist}
+                  onRateMovie={persistTmdbRating}
+                  onOpenDetail={openSheet}
+                />
+              ))
+            ) : (
+              <p className="min-w-0 shrink-0 px-1 py-4 text-xs text-neutral-500">
+                No hay títulos disponibles por ahora.
+              </p>
+            )}
+          </div>
+        </section>
+
+        <section className="mb-8">
+          <h2 className="mb-2 text-base font-semibold text-white">Ya sé lo que quiero ver</h2>
+          <p className="mb-3 text-xs text-neutral-500">Una recomendación al instante según tu mood.</p>
+          <div className="flex flex-col gap-2">
+            {MOOD_CHOICES.map((m) => (
+              <button
+                key={m.id}
+                type="button"
+                onClick={() => openMoodModal(m)}
+                className="w-full rounded-xl border border-[#2a2a2a] bg-[#101010] px-4 py-3.5 text-left text-sm font-medium text-white transition hover:border-neutral-500"
+              >
+                {m.label}
+              </button>
+            ))}
+          </div>
+        </section>
+
+        <section className="mb-8">
+          <h2 className="mb-2 text-base font-semibold text-white">Perfecto para esta noche</h2>
+          <div className="flex flex-row gap-3 overflow-x-scroll pb-2">
+            {isLoadingTonightMovies ? (
+              Array.from({ length: 4 }).map((_, index) => (
+                <article key={`tonight-skeleton-${index}`} className="w-[140px] flex-shrink-0 animate-pulse">
+                  <div className="h-[190px] w-full rounded-xl bg-[#2a2a2a]" />
+                  <div className="mt-2 h-3 w-4/5 rounded bg-[#2a2a2a]" />
+                  <div className="mt-2 h-2 w-2/5 rounded bg-[#2a2a2a]" />
+                  <div className="mt-2 h-2 w-3/5 rounded bg-[#2a2a2a]" />
+                </article>
+              ))
+            ) : tonightMoviesSorted.length > 0 ? (
+              tonightMoviesSorted.map((item) => (
+                <MovieCard
+                  key={item.id}
+                  item={item}
+                  isSaved={watchlist.includes(item.id)}
+                  onToggleWatchlist={toggleWatchlist}
+                  onRateMovie={persistTmdbRating}
+                  onOpenDetail={openSheet}
+                />
+              ))
+            ) : (
+              <p className="min-w-0 shrink-0 px-1 py-4 text-xs text-neutral-500">
+                No hay títulos disponibles por ahora.
+              </p>
+            )}
+          </div>
+        </section>
+
+        <section className="mb-8">
+          <h2 className="mb-3 text-base font-semibold text-white">Novedades en tus plataformas</h2>
+          <div className="flex flex-row gap-3 overflow-x-scroll pb-2">
+            {isLoadingNowPlayingMovies ? (
+              Array.from({ length: 4 }).map((_, index) => (
+                <article key={`nowplaying-skeleton-${index}`} className="w-[140px] flex-shrink-0 animate-pulse">
+                  <div className="h-[190px] w-full rounded-xl bg-[#2a2a2a]" />
+                  <div className="mt-2 h-3 w-4/5 rounded bg-[#2a2a2a]" />
+                  <div className="mt-2 h-2 w-2/5 rounded bg-[#2a2a2a]" />
+                  <div className="mt-2 h-2 w-3/5 rounded bg-[#2a2a2a]" />
+                </article>
+              ))
+            ) : visibleNews.length > 0 ? (
+              visibleNews.map((item) => (
                 <MovieCard
                   key={item.id}
                   item={item}
@@ -1658,37 +1833,6 @@ export default function DashboardPage() {
         </section>
 
         <section className="mb-8">
-          <h2 className="mb-2 text-base font-semibold text-white">Perfecto para esta noche</h2>
-          <div className="flex flex-row gap-3 overflow-x-scroll pb-2">
-            {isLoadingTonightMovies ? (
-              Array.from({ length: 4 }).map((_, index) => (
-                <article key={`tonight-skeleton-${index}`} className="w-[140px] flex-shrink-0 animate-pulse">
-                  <div className="h-[190px] w-full rounded-xl bg-[#2a2a2a]" />
-                  <div className="mt-2 h-3 w-4/5 rounded bg-[#2a2a2a]" />
-                  <div className="mt-2 h-2 w-2/5 rounded bg-[#2a2a2a]" />
-                  <div className="mt-2 h-2 w-3/5 rounded bg-[#2a2a2a]" />
-                </article>
-              ))
-            ) : tonightMoviesSorted.length > 0 ? (
-              tonightMoviesSorted.map((item) => (
-                <MovieCard
-                  key={item.id}
-                  item={item}
-                  isSaved={watchlist.includes(item.id)}
-                  onToggleWatchlist={toggleWatchlist}
-                  onRateMovie={persistTmdbRating}
-                  onOpenDetail={openSheet}
-                />
-              ))
-            ) : (
-              <p className="min-w-0 shrink-0 px-1 py-4 text-xs text-neutral-500">
-                No hay títulos disponibles por ahora.
-              </p>
-            )}
-          </div>
-        </section>
-
-        <section className="mb-8">
           <h2 className="mb-3 text-base font-semibold text-white">Tu año en números</h2>
           {ratedMovies.length === 0 && (
             <p className="mb-3 text-xs text-neutral-400">Completa el test para ver tus estadísticas</p>
@@ -1711,122 +1855,24 @@ export default function DashboardPage() {
           </div>
         </section>
 
-        <section className="mb-8">
-          <h2 className="mb-3 text-base font-semibold text-white">Tu amigo recomienda</h2>
-          <article className="rounded-xl border border-[#2a2a2a] bg-[#101010] px-4 py-3">
-            <div className="mb-3 flex items-center gap-3">
-              <div className="flex h-9 w-9 items-center justify-center rounded-full bg-[#1f1f1f] text-sm font-semibold text-white">
-                A
-              </div>
-              <div>
-                <p className="text-sm font-medium text-white">Alex te recomienda</p>
-                <p className="text-xs text-neutral-400">Blade Runner 2049</p>
-              </div>
-            </div>
-            <div className="mb-3 flex items-center justify-between">
-              <p className="text-sm text-[#fbbf24]">★★★★☆</p>
-              <p className="text-xs text-neutral-400">4.0/5</p>
-            </div>
-            <button
-              type="button"
-              onClick={() => addToWatchlist("blade-runner-2049")}
-              className="w-full rounded-lg bg-white px-3 py-2 text-sm font-semibold text-black transition hover:bg-neutral-100"
-            >
-              Añadir a watchlist
-            </button>
-          </article>
-        </section>
-
-        <section className="mb-8">
-          <h2 className="mb-3 text-base font-semibold text-white">Match de gustos</h2>
-          <div className="space-y-2.5">
-            {[
-              { id: "lp", name: "Laura P.", compatibility: 92, color: "#4A90D9" },
-              { id: "dm", name: "Diego M.", compatibility: 86, color: "#00A550" },
-              { id: "sr", name: "Sara R.", compatibility: 78, color: "#9370DB" }
-            ].map((friend) => (
-              <article
-                key={friend.id}
-                className="rounded-xl border border-[#2a2a2a] bg-[#101010] px-3 py-3"
-              >
-                <div className="mb-2 flex items-center gap-2">
-                  <div className="flex h-8 w-8 items-center justify-center rounded-full bg-[#1f1f1f] text-xs font-semibold text-white">
-                    {friend.id.toUpperCase()}
-                  </div>
-                  <div className="flex-1">
-                    <p className="text-sm font-medium text-white">{friend.name}</p>
-                  </div>
-                  <p className="text-sm font-semibold text-white">{friend.compatibility}%</p>
-                </div>
-                <div className="h-1.5 w-full rounded-full bg-[#2a2a2a]">
-                  <div
-                    className="h-full rounded-full"
-                    style={{ width: `${friend.compatibility}%`, backgroundColor: friend.color }}
-                  />
-                </div>
-              </article>
-            ))}
-          </div>
-        </section>
-
-        <section className="mb-8">
-          <h2 className="mb-3 text-base font-semibold text-white">Novedades en tus plataformas</h2>
-          <div className="flex flex-row gap-3 overflow-x-scroll pb-2">
-            {isLoadingNowPlayingMovies ? (
-              Array.from({ length: 4 }).map((_, index) => (
-                <article key={`nowplaying-skeleton-${index}`} className="w-[140px] flex-shrink-0 animate-pulse">
-                  <div className="h-[190px] w-full rounded-xl bg-[#2a2a2a]" />
-                  <div className="mt-2 h-3 w-4/5 rounded bg-[#2a2a2a]" />
-                  <div className="mt-2 h-2 w-2/5 rounded bg-[#2a2a2a]" />
-                  <div className="mt-2 h-2 w-3/5 rounded bg-[#2a2a2a]" />
-                </article>
-              ))
-            ) : visibleNews.length > 0 ? (
-              visibleNews.map((item) => (
-                <MovieCard
-                  key={item.id}
-                  item={item}
-                  isSaved={watchlist.includes(item.id)}
-                  onToggleWatchlist={toggleWatchlist}
-                  onRateMovie={persistTmdbRating}
-                  onOpenDetail={openSheet}
-                />
-              ))
-            ) : (
-              <p className="min-w-0 shrink-0 px-1 py-4 text-xs text-neutral-500">
-                No hay títulos disponibles por ahora.
-              </p>
-            )}
-          </div>
-        </section>
-
-        <section>
-          <h2 className="mb-3 text-base font-semibold text-white">Tus amigos están viendo</h2>
-          <div className="space-y-2.5">
-            {FRIENDS_WATCHING.map((friend) => (
-              <article
-                key={friend.id}
-                className="flex items-center gap-3 rounded-xl border border-[#2a2a2a] bg-[#101010] px-3 py-2.5"
-              >
-                <div className="flex h-9 w-9 items-center justify-center rounded-full bg-[#1f1f1f] text-sm font-semibold text-white">
-                  {friend.avatar}
-                </div>
-                <div className="min-w-0 flex-1">
-                  <p className="truncate text-sm font-medium text-white">{friend.name}</p>
-                  <p className="truncate text-xs text-neutral-400">Viendo: {friend.movie}</p>
-                </div>
-                <p className="text-sm text-[#fbbf24]">
-                  {"★".repeat(friend.stars)}
-                  <span className="text-[#3f3f46]">{"★".repeat(5 - friend.stars)}</span>
-                </p>
-              </article>
-            ))}
-          </div>
-        </section>
+        <article className="mb-8 rounded-xl border border-[#2a2a2a] bg-[#101010] px-4 py-4">
+          <p className="text-sm leading-relaxed text-neutral-400">
+            Agrega amigos para ver sus recomendaciones y comparar gustos
+          </p>
+          <Link
+            href="/amigos"
+            className="mt-4 flex w-full items-center justify-center rounded-xl border border-[#2a2a2a] bg-[#141414] py-3 text-center text-sm font-semibold text-white transition hover:border-neutral-500"
+          >
+            Ir a amigos
+          </Link>
+        </article>
 
         <TmdbDetailSheet
           sheet={sheet}
-          onClose={() => setSheet(null)}
+          onClose={() => {
+            setSheet(null);
+            setSheetShareMatch(undefined);
+          }}
           detailMovie={detailMovie}
           detailTv={detailTv}
           detailLoading={detailLoading}
@@ -1836,7 +1882,85 @@ export default function DashboardPage() {
           starsPanelOpen={starsPanelOpen}
           onToggleStarsPanel={() => setStarsPanelOpen((o) => !o)}
           persistRating={persistRating}
+          shareMatchPercent={sheetShareMatch}
         />
+
+        {moodOpen ? (
+          <>
+            <button
+              type="button"
+              aria-label="Cerrar"
+              className="fixed inset-0 z-30 bg-black/70"
+              onClick={closeMoodModal}
+            />
+            <div
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="mood-modal-title"
+              className="fixed bottom-0 left-1/2 z-40 max-h-[90vh] w-full max-w-[400px] -translate-x-1/2 overflow-y-auto rounded-t-2xl border border-[#2a2a2a] border-b-0 bg-[#111]"
+            >
+              <div className="sticky top-0 z-10 mx-auto mt-2 h-1 w-10 rounded-full bg-[#3f3f46]" />
+              <div className="px-5 pb-8 pt-4">
+                <h2 id="mood-modal-title" className="text-center text-sm font-semibold text-neutral-400">
+                  {moodPick?.label ?? "Tu mood"}
+                </h2>
+                {moodLoading ? (
+                  <p className="mt-10 text-center text-sm text-neutral-500">Buscando tu peli perfecta…</p>
+                ) : moodMovie ? (
+                  <>
+                    <div className="mx-auto mb-4 mt-4 max-w-[220px] overflow-hidden rounded-xl border border-[#2a2a2a] bg-[#1a1a1a]">
+                      {moodMovie.posterPath ? (
+                        <Image
+                          src={`https://image.tmdb.org/t/p/w500${moodMovie.posterPath}`}
+                          alt=""
+                          width={500}
+                          height={750}
+                          className="w-full object-cover"
+                        />
+                      ) : (
+                        <div className="flex aspect-[2/3] items-center justify-center text-sm text-neutral-600">
+                          Sin imagen
+                        </div>
+                      )}
+                    </div>
+                    <h3 className="text-center text-xl font-semibold text-white">{moodMovie.title}</h3>
+                    <p className="mt-3 text-sm leading-relaxed text-neutral-300">{moodMovie.overview}</p>
+                    <button
+                      type="button"
+                      disabled={watchlist.includes(watchlistId("movie", moodMovie.id))}
+                      onClick={() => {
+                        const wid = watchlistId("movie", moodMovie.id);
+                        setWatchlist((prev) => {
+                          if (prev.includes(wid)) {
+                            return prev;
+                          }
+                          const next = [...prev, wid];
+                          const deduped = Array.from(new Set(next));
+                          window.localStorage.setItem("watchlist", JSON.stringify(deduped));
+                          return deduped;
+                        });
+                      }}
+                      className="mt-6 w-full rounded-xl bg-white py-3 text-sm font-semibold text-black transition hover:bg-neutral-100 disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      {watchlist.includes(watchlistId("movie", moodMovie.id))
+                        ? "Ya está en tu watchlist"
+                        : "Añadir a watchlist"}
+                    </button>
+                  </>
+                ) : (
+                  <p className="mt-8 text-center text-sm text-neutral-500">No hay resultado ahora mismo.</p>
+                )}
+                <button
+                  type="button"
+                  onClick={closeMoodModal}
+                  className="mt-4 w-full rounded-xl border border-[#333] bg-[#1a1a1a] py-3 text-sm font-medium text-neutral-200 transition hover:border-neutral-500"
+                >
+                  Cerrar
+                </button>
+              </div>
+            </div>
+          </>
+        ) : null}
 
         <nav className="fixed bottom-0 left-1/2 z-20 w-full max-w-[400px] -translate-x-1/2 border-t border-[#1f1f1f] bg-[#0a0a0a]/95 px-5 py-3 backdrop-blur">
           <ul className="grid grid-cols-4 gap-2">

@@ -67,7 +67,7 @@ export default function OnboardingPlataformasPage() {
             style={{ position: "relative", zIndex: 1 }}
           >
             <div className="w-full">
-              <p className="mb-6 w-full text-center text-xs uppercase tracking-[0.35em] text-neutral-500">
+              <p className="mb-6 w-full text-center text-xs uppercase tracking-[0.35em] text-neutral-500 select-none">
                 WhatNext?
               </p>
 

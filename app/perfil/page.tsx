@@ -360,14 +360,6 @@ export default function PerfilPage() {
     return `${nombre.trim()} ${apellidosLocal.trim()}`.trim();
   }, [authProfile, nombre, apellidosLocal]);
 
-  const displayApellidos = useMemo(() => {
-    const fromAuth = authProfile?.lastName?.trim();
-    if (fromAuth) {
-      return fromAuth;
-    }
-    return apellidosLocal.trim();
-  }, [authProfile, apellidosLocal]);
-
   const displayEmail = useMemo(() => {
     const fromAuth = authProfile?.email?.trim();
     if (fromAuth) {
@@ -582,7 +574,7 @@ export default function PerfilPage() {
   return (
     <main className="flex min-h-screen justify-center bg-[#0a0a0a] px-6 pb-28 text-white">
       <div className="relative w-full max-w-[400px] pt-10">
-        <p className="mb-8 w-full text-center text-xs uppercase tracking-[0.35em] text-neutral-500">WhatNext?</p>
+        <p className="mb-8 w-full text-center text-xs uppercase tracking-[0.35em] text-neutral-500 select-none">WhatNext?</p>
 
         <section className="mb-10 flex flex-col items-center">
           <div className="flex h-24 w-24 items-center justify-center rounded-full bg-[#262626] text-2xl font-bold text-white">
@@ -594,10 +586,6 @@ export default function PerfilPage() {
               <dd className="mt-1 text-xl font-semibold text-white">
                 {displayNombreCompleto || "—"}
               </dd>
-            </div>
-            <div>
-              <dt className="text-[11px] uppercase tracking-wide text-neutral-500">Apellidos</dt>
-              <dd className="mt-1 text-base text-neutral-200">{displayApellidos || "—"}</dd>
             </div>
             <div>
               <dt className="text-[11px] uppercase tracking-wide text-neutral-500">Email</dt>

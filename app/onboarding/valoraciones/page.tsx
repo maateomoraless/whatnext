@@ -230,7 +230,7 @@ export default function OnboardingValoracionesPage() {
             style={{ zIndex: 1 }}
           >
             <div className="w-full overflow-y-auto pb-28">
-              <p className="mb-6 w-full text-center text-xs uppercase tracking-[0.35em] text-neutral-500">
+              <p className="mb-6 w-full text-center text-xs uppercase tracking-[0.35em] text-neutral-500 select-none">
                 WhatNext?
               </p>
 

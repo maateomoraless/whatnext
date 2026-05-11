@@ -64,7 +64,7 @@ export default function OnboardingResultadosPage() {
   return (
     <main className="flex min-h-screen justify-center bg-[#0a0a0a] px-6 text-white">
       <section className="mx-auto flex min-h-screen w-full max-w-[400px] flex-col items-center pt-12">
-        <p className="mb-6 w-full text-center text-xs uppercase tracking-[0.35em] text-neutral-500">
+        <p className="mb-6 w-full text-center text-xs uppercase tracking-[0.35em] text-neutral-500 select-none">
           WhatNext?
         </p>
 
