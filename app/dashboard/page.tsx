@@ -3,8 +3,22 @@
 import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { supabase } from "@/lib/supabase";
+import {
+  TmdbDetailSheet,
+  TMDB_API_KEY,
+  collectProviderNames,
+  fetchJson,
+  ratingStorageKey,
+  watchlistId,
+  type MediaType,
+  type MovieDetail,
+  type MultiSearchResult,
+  type SheetState,
+  type TvDetail,
+  type WatchProvidersResponse
+} from "@/components/TmdbDetailSheet";
 
 type MatchItem = {
   id: string;
@@ -210,6 +224,18 @@ const LANGUAGE_FILTERS: Record<string, string[]> = {
   "Cine europeo": ["fr", "de", "it", "pt"],
   Asiático: ["ja", "ko", "zh", "zh-CN", "zh-TW"]
 };
+
+function matchItemToMultiSearch(item: MatchItem): MultiSearchResult {
+  return {
+    id: item.tmdbId,
+    media_type: item.mediaType,
+    title: item.title,
+    name: item.title,
+    poster_path: item.posterPath ?? null,
+    release_date: item.releaseDate,
+    genre_ids: item.genreIds ?? []
+  };
+}
 
 function matchItemToPelicula(item: MatchItem): PeliculaMatchInput {
   return {
@@ -914,18 +940,41 @@ function MovieCard({
   item,
   isSaved,
   onToggleWatchlist,
-  onRateMovie
+  onRateMovie,
+  onOpenDetail
 }: {
   item: MatchItem;
   isSaved: boolean;
   onToggleWatchlist: (id: string) => void;
   onRateMovie?: (item: MatchItem, stars: number) => void;
+  onOpenDetail?: (item: MatchItem) => void;
 }) {
   const [seenPanelOpen, setSeenPanelOpen] = useState(false);
 
+  const handleOpenDetail = () => {
+    onOpenDetail?.(item);
+  };
+
   return (
     <article key={item.id} className="w-[140px] flex-shrink-0">
-      <div className="relative h-[190px] w-full overflow-hidden rounded-xl border border-[#2a2a2a]">
+      <div
+        role={onOpenDetail ? "button" : undefined}
+        tabIndex={onOpenDetail ? 0 : undefined}
+        onClick={onOpenDetail ? handleOpenDetail : undefined}
+        onKeyDown={
+          onOpenDetail
+            ? (event) => {
+                if (event.key === "Enter" || event.key === " ") {
+                  event.preventDefault();
+                  handleOpenDetail();
+                }
+              }
+            : undefined
+        }
+        className={`relative h-[190px] w-full overflow-hidden rounded-xl border border-[#2a2a2a] ${
+          onOpenDetail ? "cursor-pointer" : ""
+        }`}
+      >
         {item.posterPath != null && item.posterPath !== "" ? (
           <Image
             src={`https://image.tmdb.org/t/p/w342${item.posterPath}`}
@@ -944,14 +993,22 @@ function MovieCard({
         )}
         <button
           type="button"
-          onClick={() => onToggleWatchlist(item.id)}
+          onClick={(event) => {
+            event.stopPropagation();
+            onToggleWatchlist(item.id);
+          }}
           className="absolute right-2 top-2 inline-flex h-6 w-6 items-center justify-center rounded-md bg-white transition hover:bg-neutral-200"
           aria-label="Guardar en watchlist"
         >
           {isSaved ? <CheckIcon /> : <BookmarkIcon />}
         </button>
       </div>
-      <p className="mt-2 truncate text-sm font-medium text-white">{item.title}</p>
+      <p
+        className={`mt-2 truncate text-sm font-medium text-white ${onOpenDetail ? "cursor-pointer" : ""}`}
+        onClick={onOpenDetail ? handleOpenDetail : undefined}
+      >
+        {item.title}
+      </p>
       <p className="text-xs font-medium text-[#22c55e]">{item.match}% match</p>
       <div className="mt-1 flex items-center gap-1.5 text-xs text-neutral-400">
         <span
@@ -964,7 +1021,10 @@ function MovieCard({
         <div className="mt-2">
           <button
             type="button"
-            onClick={() => setSeenPanelOpen((open) => !open)}
+            onClick={(event) => {
+              event.stopPropagation();
+              setSeenPanelOpen((open) => !open);
+            }}
             className="w-full rounded-md border border-[#333] bg-[#161616] px-2 py-1 text-[10px] font-medium text-neutral-300 transition hover:border-neutral-500 hover:text-white"
           >
             ✓ Ya la vi
@@ -977,7 +1037,8 @@ function MovieCard({
                   <button
                     key={star}
                     type="button"
-                    onClick={() => {
+                    onClick={(event) => {
+                      event.stopPropagation();
                       onRateMovie(item, star);
                       setSeenPanelOpen(false);
                     }}
@@ -1012,6 +1073,13 @@ export default function DashboardPage() {
   const [nowPlayingMovies, setNowPlayingMovies] = useState<MatchItem[]>([]);
   const [isLoadingNowPlayingMovies, setIsLoadingNowPlayingMovies] = useState(true);
   const [becauseLikedFilmTitle, setBecauseLikedFilmTitle] = useState("tu favorita");
+
+  const [sheet, setSheet] = useState<SheetState | null>(null);
+  const [detailMovie, setDetailMovie] = useState<MovieDetail | null>(null);
+  const [detailTv, setDetailTv] = useState<TvDetail | null>(null);
+  const [providers, setProviders] = useState<string[]>([]);
+  const [detailLoading, setDetailLoading] = useState(false);
+  const [starsPanelOpen, setStarsPanelOpen] = useState(false);
 
   const persistTmdbRating = (item: MatchItem, stars: number) => {
     const key = `tmdb-${item.tmdbId}`;
@@ -1347,10 +1415,6 @@ export default function DashboardPage() {
     });
   };
 
-  useEffect(() => {
-    window.localStorage.setItem("watchlist", JSON.stringify(watchlist));
-  }, [watchlist]);
-
   const addToWatchlist = (id: string) => {
     setWatchlist((prev) => {
       if (prev.includes(id)) {
@@ -1362,6 +1426,128 @@ export default function DashboardPage() {
       return deduped;
     });
   };
+
+  const openSheet = useCallback((item: MatchItem) => {
+    setSheet({ item: matchItemToMultiSearch(item), media: item.mediaType });
+    setStarsPanelOpen(false);
+    setDetailMovie(null);
+    setDetailTv(null);
+    setProviders([]);
+  }, []);
+
+  useEffect(() => {
+    if (!sheet) {
+      return;
+    }
+
+    const ac = new AbortController();
+    const base = `https://api.themoviedb.org/3`;
+    const key = TMDB_API_KEY;
+    const { item, media } = sheet;
+
+    async function loadDetail() {
+      setDetailLoading(true);
+      if (media === "movie") {
+        const [mov, prov] = await Promise.all([
+          fetchJson<MovieDetail>(
+            `${base}/movie/${item.id}?api_key=${key}&language=es-ES`,
+            ac.signal
+          ),
+          fetchJson<WatchProvidersResponse>(
+            `${base}/movie/${item.id}/watch/providers?api_key=${key}`,
+            ac.signal
+          )
+        ]);
+        if (!ac.signal.aborted) {
+          setDetailMovie(mov);
+          setDetailTv(null);
+          setProviders(collectProviderNames(prov));
+        }
+      } else {
+        const [tv, prov] = await Promise.all([
+          fetchJson<TvDetail>(`${base}/tv/${item.id}?api_key=${key}&language=es-ES`, ac.signal),
+          fetchJson<WatchProvidersResponse>(
+            `${base}/tv/${item.id}/watch/providers?api_key=${key}`,
+            ac.signal
+          )
+        ]);
+        if (!ac.signal.aborted) {
+          setDetailTv(tv);
+          setDetailMovie(null);
+          setProviders(collectProviderNames(prov));
+        }
+      }
+      if (!ac.signal.aborted) {
+        setDetailLoading(false);
+      }
+    }
+
+    loadDetail();
+    return () => ac.abort();
+  }, [sheet]);
+
+  const toggleWatchlistFromSheet = useCallback(() => {
+    if (!sheet) {
+      return;
+    }
+    const id = watchlistId(sheet.media, sheet.item.id);
+    setWatchlist((prev) => {
+      const next = prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id];
+      const deduped = Array.from(new Set(next));
+      window.localStorage.setItem("watchlist", JSON.stringify(deduped));
+      return deduped;
+    });
+  }, [sheet]);
+
+  const persistRating = useCallback(
+    (stars: number) => {
+      if (!sheet) {
+        return;
+      }
+      const key = ratingStorageKey(sheet.media, sheet.item.id);
+      const fromDetail =
+        sheet.media === "movie"
+          ? detailMovie?.genres?.map((g) => g.id) ?? []
+          : detailTv?.genres?.map((g) => g.id) ?? [];
+      const genreIds =
+        fromDetail.length > 0
+          ? fromDetail
+          : sheet.item.genre_ids?.filter((n) => Number.isFinite(n)) ?? [];
+      const title =
+        sheet.media === "movie"
+          ? detailMovie?.title ?? sheet.item.title ?? ""
+          : detailTv?.name ?? sheet.item.name ?? "";
+
+      try {
+        const raw = window.localStorage.getItem("valoraciones");
+        const prev = raw ? (JSON.parse(raw) as Record<string, unknown>) : {};
+        const next = {
+          ...prev,
+          [key]: { rating: stars, unseen: false, genreIds, title }
+        };
+        window.localStorage.setItem("valoraciones", JSON.stringify(next));
+      } catch {
+        window.localStorage.setItem(
+          "valoraciones",
+          JSON.stringify({ [key]: { rating: stars, unseen: false, genreIds, title } })
+        );
+      }
+
+      setRatings((prev) => ({
+        ...prev,
+        [key]: {
+          rating: stars,
+          unseen: false,
+          genreIds,
+          title
+        }
+      }));
+
+      setStarsPanelOpen(false);
+      setSheet(null);
+    },
+    [sheet, detailMovie, detailTv]
+  );
 
   return (
     <main className="flex min-h-screen justify-center bg-[#0a0a0a] px-6 text-white">
@@ -1400,6 +1586,7 @@ export default function DashboardPage() {
                   isSaved={watchlist.includes(item.id)}
                   onToggleWatchlist={toggleWatchlist}
                   onRateMovie={persistTmdbRating}
+                  onOpenDetail={openSheet}
                 />
               ))
             ) : (
@@ -1437,6 +1624,7 @@ export default function DashboardPage() {
                   isSaved={watchlist.includes(item.id)}
                   onToggleWatchlist={toggleWatchlist}
                   onRateMovie={persistTmdbRating}
+                  onOpenDetail={openSheet}
                 />
               ))
             ) : (
@@ -1462,6 +1650,7 @@ export default function DashboardPage() {
                   isSaved={watchlist.includes(item.id)}
                   onToggleWatchlist={toggleWatchlist}
                   onRateMovie={persistTmdbRating}
+                  onOpenDetail={openSheet}
                 />
               ))}
             </div>
@@ -1488,6 +1677,7 @@ export default function DashboardPage() {
                   isSaved={watchlist.includes(item.id)}
                   onToggleWatchlist={toggleWatchlist}
                   onRateMovie={persistTmdbRating}
+                  onOpenDetail={openSheet}
                 />
               ))
             ) : (
@@ -1599,6 +1789,7 @@ export default function DashboardPage() {
                   isSaved={watchlist.includes(item.id)}
                   onToggleWatchlist={toggleWatchlist}
                   onRateMovie={persistTmdbRating}
+                  onOpenDetail={openSheet}
                 />
               ))
             ) : (
@@ -1632,6 +1823,20 @@ export default function DashboardPage() {
             ))}
           </div>
         </section>
+
+        <TmdbDetailSheet
+          sheet={sheet}
+          onClose={() => setSheet(null)}
+          detailMovie={detailMovie}
+          detailTv={detailTv}
+          detailLoading={detailLoading}
+          providers={providers}
+          watchlist={watchlist}
+          onToggleWatchlist={toggleWatchlistFromSheet}
+          starsPanelOpen={starsPanelOpen}
+          onToggleStarsPanel={() => setStarsPanelOpen((o) => !o)}
+          persistRating={persistRating}
+        />
 
         <nav className="fixed bottom-0 left-1/2 z-20 w-full max-w-[400px] -translate-x-1/2 border-t border-[#1f1f1f] bg-[#0a0a0a]/95 px-5 py-3 backdrop-blur">
           <ul className="grid grid-cols-4 gap-2">

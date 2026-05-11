@@ -561,14 +561,6 @@ export default function PerfilPage() {
     });
   };
 
-  const removeWatchlistItem = (watchlistId: string) => {
-    setWatchlist((prev) => {
-      const next = prev.filter((x) => x !== watchlistId);
-      window.localStorage.setItem("watchlist", JSON.stringify(Array.from(new Set(next))));
-      return Array.from(new Set(next));
-    });
-  };
-
   const shareApp = async () => {
     const url = typeof window !== "undefined" ? window.location.origin : "";
     const payload = {
@@ -770,8 +762,9 @@ export default function PerfilPage() {
               Aún no has valorado ninguna película
             </p>
           ) : (
-            <ul className="space-y-2">
-              {historyRows.map((row) => (
+            <>
+              <ul className="space-y-2">
+                {historyRows.slice(0, 4).map((row) => (
                 <li
                   key={row.key}
                   className="flex items-center gap-3 rounded-xl border border-[#2a2a2a] bg-[#101010] px-3 py-2.5"
@@ -794,8 +787,15 @@ export default function PerfilPage() {
                     <p className="text-xs text-[#fbbf24]">{starsDisplay(row.stars)}</p>
                   </div>
                 </li>
-              ))}
-            </ul>
+                ))}
+              </ul>
+              <Link
+                href="/perfil/historial"
+                className="mt-4 flex w-full items-center justify-center rounded-xl border border-[#2a2a2a] bg-[#101010] px-4 py-3 text-sm font-semibold text-white transition hover:border-neutral-500 hover:bg-[#161616]"
+              >
+                Ver todo →
+              </Link>
+            </>
           )}
         </section>
 
@@ -808,39 +808,37 @@ export default function PerfilPage() {
               No tienes nada guardado en la watchlist.
             </p>
           ) : (
-            <ul className="space-y-2">
-              {watchlistRows.map((row) => (
-                <li
-                  key={row.watchlistId}
-                  className="flex items-center gap-3 rounded-xl border border-[#2a2a2a] bg-[#101010] px-3 py-2.5"
-                >
-                  <div className="h-14 w-10 flex-shrink-0 overflow-hidden rounded-md border border-[#2a2a2a] bg-[#1a1a1a]">
-                    {row.posterPath ? (
-                      <Image
-                        src={`https://image.tmdb.org/t/p/w92${row.posterPath}`}
-                        alt=""
-                        width={92}
-                        height={138}
-                        className="h-full w-full object-cover"
-                      />
-                    ) : (
-                      <div className="flex h-full items-center justify-center text-[8px] text-neutral-600">—</div>
-                    )}
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate text-sm font-medium text-white">{row.title}</p>
+            <>
+              <div className="flex flex-row gap-3 overflow-x-scroll pb-2">
+                {watchlistRows.slice(0, 4).map((row) => (
+                  <article key={row.watchlistId} className="w-[140px] flex-shrink-0">
+                    <div className="relative h-[190px] w-full overflow-hidden rounded-xl border border-[#2a2a2a] bg-[#1a1a1a]">
+                      {row.posterPath ? (
+                        <Image
+                          src={`https://image.tmdb.org/t/p/w342${row.posterPath}`}
+                          alt={`Póster de ${row.title}`}
+                          width={342}
+                          height={513}
+                          className="h-full w-full object-cover"
+                        />
+                      ) : (
+                        <div className="flex h-full items-center justify-center text-xs text-neutral-600">
+                          Sin imagen
+                        </div>
+                      )}
+                    </div>
+                    <p className="mt-2 truncate text-sm font-medium text-white">{row.title}</p>
                     <p className="text-[10px] uppercase tracking-wide text-neutral-500">{row.media}</p>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => removeWatchlistItem(row.watchlistId)}
-                    className="flex-shrink-0 rounded-lg border border-neutral-600 px-2.5 py-1 text-xs font-medium text-neutral-300 transition hover:border-red-500 hover:text-red-400"
-                  >
-                    Quitar
-                  </button>
-                </li>
-              ))}
-            </ul>
+                  </article>
+                ))}
+              </div>
+              <Link
+                href="/perfil/watchlist"
+                className="mt-4 flex w-full items-center justify-center rounded-xl border border-[#2a2a2a] bg-[#101010] px-4 py-3 text-sm font-semibold text-white transition hover:border-neutral-500 hover:bg-[#161616]"
+              >
+                Ver todo →
+              </Link>
+            </>
           )}
         </section>
 

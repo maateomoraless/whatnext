@@ -47,16 +47,28 @@ export default function HomePage() {
     setRegisterPending(false);
   };
 
+  useEffect(() => {
+    const checkSession = async () => {
+      const { data } = await supabase.auth.getSession();
+      if (data.session) {
+        router.push("/dashboard");
+      }
+    };
+    void checkSession();
+  }, [router]);
+
   const handleSignIn = async () => {
     setAuthError(null);
     setPending(true);
-    const { error } = await supabase.auth.signInWithPassword({ email, password });
+    const { data, error } = await supabase.auth.signInWithPassword({ email, password });
     setPending(false);
     if (error) {
       setAuthError(error.message);
       return;
     }
-    router.push("/onboarding/nombre");
+    if (data.session) {
+      router.push("/dashboard");
+    }
   };
 
   const handleRegisterSubmit = async () => {
