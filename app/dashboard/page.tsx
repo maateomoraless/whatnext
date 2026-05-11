@@ -2,7 +2,7 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { bumpMovieStreak, readEffectiveMovieStreak } from "@/lib/movieStreak";
 import { supabase } from "@/lib/supabase";
@@ -64,6 +64,7 @@ type TmdbDiscoverResponse = {
     genre_ids?: number[];
     popularity?: number;
     release_date?: string;
+    /** Presente en discover/movie. */
     original_language?: string;
   }>;
 };
@@ -93,6 +94,8 @@ type DiscoverExtraFilters = {
   skipEpoca?: boolean;
   /** No aplicar with_genres (ni forzados ni desde gustos). */
   skipGenres?: boolean;
+  /** TMDB: coma = AND, barra = OR. Por defecto OR para mezclar gustos y temáticas. */
+  joinGenresWithOr?: boolean;
 };
 
 const TMDB_FALLBACK_API_KEY = "2de8d3ecfb29fc4efda4d7fa09d0920e";
@@ -177,9 +180,6 @@ const TMDB_ID_BY_ONBOARDING: Record<string, number> = {
   oppenheimer: 872585
 };
 
-/** Pipe por defecto si el usuario no eligió plataformas (sin Filmin). */
-const DEFAULT_WATCH_PROVIDER_IDS_PIPE = "8|337|1899|119|350";
-
 const GENRE_IDS_BY_NAME: Record<string, number> = {
   Acción: 28,
   Drama: 18,
@@ -199,19 +199,31 @@ const GENRE_LABEL_TO_TMDB_ID: Record<string, number> = {
   Crimen: 80
 };
 
+/** Época fija (sin "Lo más reciente", que se calcula a 2 años desde hoy). */
 const EPOCA_FILTERS: Record<string, { gte?: string; lte?: string }> = {
   Clásicos: { lte: "1979-12-31" },
   "2000s": { gte: "2000-01-01", lte: "2009-12-31" },
-  "Últimos 5 años": { gte: "2020-01-01" },
-  "Lo más reciente": { gte: "2024-01-01" }
+  "Últimos 5 años": { gte: "2020-01-01" }
 };
 
 const LANGUAGE_FILTERS: Record<string, string[]> = {
-  Español: ["es"],
+  /** Incluye `en`: gran parte del catálogo en España llega doblada/subtitulada. */
+  Español: ["es", "en"],
   Inglés: ["en"],
   "Cine europeo": ["fr", "de", "it", "pt"],
-  Asiático: ["ja", "ko", "zh", "zh-CN", "zh-TW"]
+  Asiático: ["ko", "ja", "zh"]
 };
+
+/** Temática onboarding → IDs de género TMDB (OR al combinar). */
+const TEMATICA_GENRE_IDS: Record<string, number[]> = {
+  "Mafia y crimen": [80],
+  Superhéroes: [28],
+  "Política y poder": [36],
+  "Guerras e historia": [36, 10752],
+  Espías: [53]
+};
+
+const DASHBOARD_RECS_OK_MS_KEY = "whatnext_dashboard_recs_ok_ms";
 
 function matchItemToMultiSearch(item: MatchItem): MultiSearchResult {
   return {
@@ -246,17 +258,18 @@ function fechaEnRangoEpoca(isoDate: string, range: { gte?: string; lte?: string 
   return true;
 }
 
-function buildWatchProvidersPipe(plataformasLabels: string[]): string {
+/** `null` = sin filtro de proveedor (todas las plataformas en España). */
+function buildWatchProvidersPipe(plataformasLabels: string[]): string | null {
   const ids = plataformasLabels
     .map((p) => PROVIDER_ID_BY_PLATFORM[p])
     .filter((id): id is number => typeof id === "number");
   if (ids.length === 0) {
-    return DEFAULT_WATCH_PROVIDER_IDS_PIPE;
+    return null;
   }
   return ids.join("|");
 }
 
-/** Películas que no deben mostrarse en recomendaciones: valoradas (rating > 0) o marcadas como no vista / pendientes (unseen). */
+/** Películas excluidas: "Ya la vi" (`unseen`), cualquier valoración, o pendientes con rating. */
 function getExcludedTmdbIds(valoraciones: Ratings): Set<number> {
   const out = new Set<number>();
   Object.entries(valoraciones).forEach(([key, v]) => {
@@ -291,7 +304,19 @@ function collectGenreIdsFromGustos(gustos: GustosSelection): number[] {
       ids.add(id);
     }
   }
+  for (const label of gustos.tematica ?? []) {
+    const extra = TEMATICA_GENRE_IDS[label];
+    if (extra) {
+      extra.forEach((id) => ids.add(id));
+    }
+  }
   return Array.from(ids);
+}
+
+function isoDateYearsAgo(years: number): string {
+  const d = new Date();
+  d.setFullYear(d.getFullYear() - years);
+  return d.toISOString().slice(0, 10);
 }
 
 function mergeEpocaPrimaryReleaseParams(gustos: GustosSelection): { gte?: string; lte?: string } {
@@ -302,6 +327,11 @@ function mergeEpocaPrimaryReleaseParams(gustos: GustosSelection): { gte?: string
   let gte: string | undefined;
   let lte: string | undefined;
   for (const ep of epocas) {
+    if (ep === "Lo más reciente") {
+      const rGte = isoDateYearsAgo(2);
+      gte = !gte ? rGte : rGte > gte ? rGte : gte;
+      continue;
+    }
     const r = EPOCA_FILTERS[ep];
     if (!r) {
       continue;
@@ -328,11 +358,11 @@ function originalLanguageDiscoverValue(gustos: GustosSelection): string | null {
   return langs.join("|");
 }
 
-async function fetchRatedMovieGenreAndTitle(
+async function fetchRatedBestMovieGenresAndTitle(
   ratedKey: string,
   apiKey: string,
   signal: AbortSignal
-): Promise<{ genreId: number | null; title: string | null }> {
+): Promise<{ genreIds: number[]; title: string | null }> {
   let tmdbMovieId: number | null = null;
   if (ratedKey.startsWith("tmdb-")) {
     const n = Number(ratedKey.slice(5));
@@ -341,7 +371,7 @@ async function fetchRatedMovieGenreAndTitle(
     tmdbMovieId = TMDB_ID_BY_ONBOARDING[ratedKey] ?? null;
   }
   if (tmdbMovieId == null) {
-    return { genreId: null, title: null };
+    return { genreIds: [], title: null };
   }
   const url = `https://api.themoviedb.org/3/movie/${tmdbMovieId}?api_key=${apiKey}&language=es-ES`;
   const res = await fetchTmdbJson<{ genres?: Array<{ id: number }>; title?: string }>(
@@ -350,11 +380,13 @@ async function fetchRatedMovieGenreAndTitle(
     signal
   );
   if (!res.ok) {
-    return { genreId: null, title: null };
+    return { genreIds: [], title: null };
   }
-  const gid = res.data.genres?.[0]?.id;
+  const genreIds = (res.data.genres ?? [])
+    .map((g) => g.id)
+    .filter((id): id is number => typeof id === "number" && Number.isFinite(id));
   return {
-    genreId: typeof gid === "number" ? gid : null,
+    genreIds,
     title: typeof res.data.title === "string" ? res.data.title : null
   };
 }
@@ -384,7 +416,19 @@ function rawDiscoverResultsToMatchItems(
   }));
 }
 
-async function enrichEsFlatrateOnly(items: MatchItem[], apiKey: string): Promise<MatchItem[]> {
+function normalizeStreamingProviderName(name: string): string {
+  return name === "Amazon Prime Video" ? "Prime" : name;
+}
+
+/** Si `allowedLabels` tiene entradas, solo se acepta un proveedor de streaming de esa lista (ES flatrate). */
+async function enrichEsFlatrateOnly(
+  items: MatchItem[],
+  apiKey: string,
+  allowedLabels: string[] | null
+): Promise<MatchItem[]> {
+  const allowed =
+    allowedLabels && allowedLabels.length > 0 ? new Set(allowedLabels) : null;
+
   const enriched = await Promise.all(
     items.map(async (item) => {
       const url = `https://api.themoviedb.org/3/movie/${item.tmdbId}/watch/providers?api_key=${apiKey}`;
@@ -397,8 +441,17 @@ async function enrichEsFlatrateOnly(items: MatchItem[], apiKey: string): Promise
         if (!flat?.length) {
           return null;
         }
-        const name = flat[0].provider_name;
-        const normalized = name === "Amazon Prime Video" ? "Prime" : name;
+        let chosen: { provider_name: string } | undefined;
+        if (allowed) {
+          chosen = flat.find((p) => allowed.has(normalizeStreamingProviderName(p.provider_name)));
+        } else {
+          chosen = flat[0];
+        }
+        if (!chosen) {
+          return null;
+        }
+        const name = chosen.provider_name;
+        const normalized = normalizeStreamingProviderName(name);
         const color = PROVIDER_COLOR_BY_NAME[normalized] ?? PROVIDER_COLOR_BY_NAME[name] ?? "#737373";
         return {
           ...item,
@@ -424,6 +477,7 @@ async function fetchMoviesForUser(
 ): Promise<MatchItem[]> {
   const excluded = getExcludedTmdbIds(valoraciones);
   const providerPipe = buildWatchProvidersPipe(plataformas);
+  const restrictPlatforms = plataformas.length > 0;
 
   let genrePart: number[] = [];
   if (!filtrosExtra.skipGenres) {
@@ -440,6 +494,7 @@ async function fetchMoviesForUser(
 
   const epoca = filtrosExtra.skipEpoca ? {} : mergeEpocaPrimaryReleaseParams(gustos);
   const lang = filtrosExtra.skipOriginalLanguage ? null : originalLanguageDiscoverValue(gustos);
+  const genreJoiner = filtrosExtra.joinGenresWithOr === false ? "," : "|";
 
   const collected: MatchItem[] = [];
   let page = 1;
@@ -453,14 +508,16 @@ async function fetchMoviesForUser(
       api_key: apiKey,
       language: "es-ES",
       watch_region: "ES",
-      with_watch_providers: providerPipe,
       sort_by: "vote_average.desc",
       page: String(page),
       "vote_count.gte": "100"
     });
+    if (providerPipe) {
+      params.set("with_watch_providers", providerPipe);
+    }
 
     if (genrePart.length > 0) {
-      params.set("with_genres", genrePart.join(","));
+      params.set("with_genres", genrePart.join(genreJoiner));
     }
     if (lang) {
       params.set("with_original_language", lang);
@@ -498,7 +555,11 @@ async function fetchMoviesForUser(
         !excluded.has(m.id)
     );
     const mapped = rawDiscoverResultsToMatchItems(candidates, opts.idPrefix, collected.length);
-    const withProviders = await enrichEsFlatrateOnly(mapped, apiKey);
+    const withProviders = await enrichEsFlatrateOnly(
+      mapped,
+      apiKey,
+      restrictPlatforms ? plataformas : null
+    );
     for (const it of withProviders) {
       if (collected.some((c) => c.tmdbId === it.tmdbId)) {
         continue;
@@ -524,6 +585,7 @@ async function fetchPopularOnPlatformsDiscover(
 ): Promise<MatchItem[]> {
   const excluded = getExcludedTmdbIds(valoraciones);
   const providerPipe = buildWatchProvidersPipe(plataformas);
+  const restrictPlatforms = plataformas.length > 0;
   const collected: MatchItem[] = [];
   let page = 1;
 
@@ -535,10 +597,12 @@ async function fetchPopularOnPlatformsDiscover(
       api_key: apiKey,
       language: "es-ES",
       watch_region: "ES",
-      with_watch_providers: providerPipe,
       sort_by: "popularity.desc",
       page: String(page)
     });
+    if (providerPipe) {
+      params.set("with_watch_providers", providerPipe);
+    }
     const url = `https://api.themoviedb.org/3/discover/movie?${params.toString()}`;
     const res = await fetchTmdbJson<TmdbDiscoverResponse>(
       `discover/popular-platforms ${idPrefix} p${page}`,
@@ -556,7 +620,11 @@ async function fetchPopularOnPlatformsDiscover(
         !excluded.has(m.id)
     );
     const mapped = rawDiscoverResultsToMatchItems(candidates, idPrefix, collected.length);
-    const withProviders = await enrichEsFlatrateOnly(mapped, apiKey);
+    const withProviders = await enrichEsFlatrateOnly(
+      mapped,
+      apiKey,
+      restrictPlatforms ? plataformas : null
+    );
     for (const it of withProviders) {
       if (!collected.some((c) => c.tmdbId === it.tmdbId)) {
         collected.push(it);
@@ -603,7 +671,7 @@ async function fetchPopularDiscoverGlobal(
         !excluded.has(m.id)
     );
     const mapped = rawDiscoverResultsToMatchItems(candidates, idPrefix, collected.length);
-    const withProviders = await enrichEsFlatrateOnly(mapped, apiKey);
+    const withProviders = await enrichEsFlatrateOnly(mapped, apiKey, null);
     for (const it of withProviders) {
       if (!collected.some((c) => c.tmdbId === it.tmdbId)) {
         collected.push(it);
@@ -662,6 +730,12 @@ async function fetchParaTiMoviesWithFallback(
   return fetchPopularDiscoverGlobal(valoraciones, apiKey, signal, targetCount, "para-ti-global");
 }
 
+function isoDateMonthsAgo(months: number): string {
+  const d = new Date();
+  d.setMonth(d.getMonth() - months);
+  return d.toISOString().slice(0, 10);
+}
+
 async function fetchNovedadesMovies(
   plataformas: string[],
   valoraciones: Ratings,
@@ -671,6 +745,7 @@ async function fetchNovedadesMovies(
 ): Promise<MatchItem[]> {
   const excluded = getExcludedTmdbIds(valoraciones);
   const providerPipe = buildWatchProvidersPipe(plataformas);
+  const restrictPlatforms = plataformas.length > 0;
   const collected: MatchItem[] = [];
   let page = 1;
 
@@ -682,11 +757,14 @@ async function fetchNovedadesMovies(
       api_key: apiKey,
       language: "es-ES",
       watch_region: "ES",
-      with_watch_providers: providerPipe,
-      sort_by: "popularity.desc",
+      sort_by: "release_date.desc",
       page: String(page),
-      "primary_release_date.gte": "2024-01-01"
+      "primary_release_date.gte": isoDateMonthsAgo(3),
+      "vote_count.gte": "20"
     });
+    if (providerPipe) {
+      params.set("with_watch_providers", providerPipe);
+    }
 
     const url = `https://api.themoviedb.org/3/discover/movie?${params.toString()}`;
     const res = await fetchTmdbJson<TmdbDiscoverResponse>(`discover/novedades p${page}`, url, signal);
@@ -701,7 +779,11 @@ async function fetchNovedadesMovies(
         !excluded.has(m.id)
     );
     const mapped = rawDiscoverResultsToMatchItems(candidates, "novedades", collected.length);
-    const withProviders = await enrichEsFlatrateOnly(mapped, apiKey);
+    const withProviders = await enrichEsFlatrateOnly(
+      mapped,
+      apiKey,
+      restrictPlatforms ? plataformas : null
+    );
     for (const it of withProviders) {
       if (collected.some((c) => c.tmdbId === it.tmdbId)) {
         continue;
@@ -743,11 +825,15 @@ function calcularPuntosMatch(
         continue;
       }
       if (stars >= 5) {
-        score += 20;
+        score += 30;
       } else if (stars === 4) {
-        score += 12;
-      } else if (stars <= 2 && stars >= 1) {
-        score -= 25;
+        score += 15;
+      } else if (stars === 3) {
+        score += 5;
+      } else if (stars === 2) {
+        score -= 15;
+      } else if (stars === 1) {
+        score -= 30;
       }
       continue;
     }
@@ -760,11 +846,15 @@ function calcularPuntosMatch(
       continue;
     }
     if (stars >= 5) {
-      score += 20;
+      score += 30;
     } else if (stars === 4) {
-      score += 12;
-    } else if (stars <= 2 && stars >= 1) {
-      score -= 25;
+      score += 15;
+    } else if (stars === 3) {
+      score += 5;
+    } else if (stars === 2) {
+      score -= 15;
+    } else if (stars === 1) {
+      score -= 30;
     }
   }
 
@@ -792,6 +882,9 @@ function calcularPuntosMatch(
   if (epocas.length > 0 && pelicula.releaseDate) {
     const rd = pelicula.releaseDate.slice(0, 10);
     const epocaOk = epocas.some((ep) => {
+      if (ep === "Lo más reciente") {
+        return fechaEnRangoEpoca(rd, { gte: isoDateYearsAgo(2) });
+      }
       const range = EPOCA_FILTERS[ep];
       return range ? fechaEnRangoEpoca(rd, range) : false;
     });
@@ -978,12 +1071,15 @@ function MovieCard({
   isSaved,
   onToggleWatchlist,
   onRateMovie,
+  onMarkSeenUnrated,
   onOpenDetail
 }: {
   item: MatchItem;
   isSaved: boolean;
   onToggleWatchlist: (id: string) => void;
   onRateMovie?: (item: MatchItem, stars: number) => void;
+  /** Marcar como vista sin valorar (excluye de recomendaciones). */
+  onMarkSeenUnrated?: (item: MatchItem) => void;
   onOpenDetail?: (item: MatchItem) => void;
 }) {
   const [seenPanelOpen, setSeenPanelOpen] = useState(false);
@@ -1086,6 +1182,19 @@ function MovieCard({
                   </button>
                 ))}
               </div>
+              {onMarkSeenUnrated ? (
+                <button
+                  type="button"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    onMarkSeenUnrated(item);
+                    setSeenPanelOpen(false);
+                  }}
+                  className="mt-2 w-full rounded-md border border-dashed border-neutral-600 py-1 text-[10px] text-neutral-500 transition hover:border-neutral-500 hover:text-neutral-300"
+                >
+                  Solo marcar como vista
+                </button>
+              ) : null}
             </div>
           ) : null}
         </div>
@@ -1096,6 +1205,7 @@ function MovieCard({
 
 export default function DashboardPage() {
   const router = useRouter();
+  const pathname = usePathname();
   const [name, setName] = useState("");
   const [selectedPlatforms, setSelectedPlatforms] = useState<string[]>([]);
   const [gustos, setGustos] = useState<GustosSelection>({});
@@ -1124,6 +1234,8 @@ export default function DashboardPage() {
   const [moodMovie, setMoodMovie] = useState<MoodMovie | null>(null);
   const [moodPick, setMoodPick] = useState<MoodPick | null>(null);
   const moodAbortRef = useRef<AbortController | null>(null);
+  const lastRecDepsSigRef = useRef<string | null>(null);
+  const [dashboardRecVisEpoch, setDashboardRecVisEpoch] = useState(0);
 
   const persistTmdbRating = (item: MatchItem, stars: number) => {
     const key = `tmdb-${item.tmdbId}`;
@@ -1142,6 +1254,42 @@ export default function DashboardPage() {
     });
     setStreakDays(bumpMovieStreak());
   };
+
+  const persistTmdbSeenUnrated = useCallback((item: MatchItem) => {
+    const key = `tmdb-${item.tmdbId}`;
+    setRatings((prev) => {
+      const next: Ratings = {
+        ...prev,
+        [key]: {
+          rating: 0,
+          unseen: true,
+          title: item.title,
+          genreIds: item.genreIds ?? []
+        }
+      };
+      window.localStorage.setItem("valoraciones", JSON.stringify(next));
+      return next;
+    });
+    setStreakDays(bumpMovieStreak());
+  }, []);
+
+  useEffect(() => {
+    if (pathname !== "/dashboard") {
+      return;
+    }
+    const bumpIfStale = () => {
+      if (typeof document !== "undefined" && document.visibilityState !== "visible") {
+        return;
+      }
+      const ok = Number(window.sessionStorage.getItem(DASHBOARD_RECS_OK_MS_KEY) || "0");
+      if (Date.now() - ok >= 30 * 60 * 1000) {
+        setDashboardRecVisEpoch((n) => n + 1);
+      }
+    };
+    bumpIfStale();
+    document.addEventListener("visibilitychange", bumpIfStale);
+    return () => document.removeEventListener("visibilitychange", bumpIfStale);
+  }, [pathname]);
 
   useEffect(() => {
     let cancelled = false;
@@ -1288,6 +1436,27 @@ export default function DashboardPage() {
   }, []);
 
   useEffect(() => {
+    const depsSig = JSON.stringify({
+      gustos,
+      ratings,
+      platforms: selectedPlatforms
+    });
+    const prefsChanged = lastRecDepsSigRef.current !== depsSig;
+    if (prefsChanged) {
+      lastRecDepsSigRef.current = depsSig;
+    }
+    const lastOk = Number(
+      typeof window !== "undefined" ? window.sessionStorage.getItem(DASHBOARD_RECS_OK_MS_KEY) || "0" : "0"
+    );
+    const visitStale = Date.now() - lastOk >= 30 * 60 * 1000;
+    if (!prefsChanged && !visitStale) {
+      setIsLoadingPopular(false);
+      setIsLoadingBecauseYouLiked(false);
+      setIsLoadingTonightMovies(false);
+      setIsLoadingNowPlayingMovies(false);
+      return;
+    }
+
     const ac = new AbortController();
     let cancelled = false;
 
@@ -1302,20 +1471,43 @@ export default function DashboardPage() {
       let bestId = "";
       let bestRating = -1;
       Object.entries(ratings).forEach(([movieId, value]) => {
-        if (value && !value.unseen && typeof value.rating === "number" && value.rating > bestRating) {
+        if (
+          value &&
+          !value.unseen &&
+          typeof value.rating === "number" &&
+          value.rating >= 3 &&
+          value.rating > bestRating
+        ) {
           bestRating = value.rating;
           bestId = movieId;
         }
       });
+      if (!bestId) {
+        bestRating = -1;
+        Object.entries(ratings).forEach(([movieId, value]) => {
+          if (
+            value &&
+            !value.unseen &&
+            typeof value.rating === "number" &&
+            value.rating >= 1 &&
+            value.rating > bestRating
+          ) {
+            bestRating = value.rating;
+            bestId = movieId;
+          }
+        });
+      }
 
-      let porqueGenreId: number | null = null;
+      let porqueGenreIds: number[] = [];
       const storedBestTitle =
         bestId && ratings[bestId]?.title?.trim() ? ratings[bestId].title!.trim() : null;
       let porqueTitle: string | null = storedBestTitle;
+      const storedGenres = ratings[bestId]?.genreIds?.filter((g) => Number.isFinite(g)) ?? [];
       if (bestId) {
-        const detail = await fetchRatedMovieGenreAndTitle(bestId, apiKey, ac.signal);
+        const detail = await fetchRatedBestMovieGenresAndTitle(bestId, apiKey, ac.signal);
         if (!cancelled) {
-          porqueGenreId = detail.genreId;
+          const merged = new Set<number>([...storedGenres, ...detail.genreIds]);
+          porqueGenreIds = Array.from(merged);
           porqueTitle = storedBestTitle ?? detail.title;
         }
       }
@@ -1340,13 +1532,13 @@ export default function DashboardPage() {
       try {
         const [paraTiRaw, porqueRaw, nocheRaw, novedadesRaw] = await Promise.all([
           fetchParaTiMoviesWithFallback(gustos, ratings, selectedPlatforms, apiKey, ac.signal, 14),
-          porqueGenreId != null
+          porqueGenreIds.length > 0
             ? fetchMoviesForUser(
                 gustos,
                 ratings,
                 selectedPlatforms,
                 {
-                  forcedGenreIds: [porqueGenreId],
+                  forcedGenreIds: porqueGenreIds,
                   onlyForcedGenres: true,
                   skipOriginalLanguage: true,
                   skipEpoca: true
@@ -1371,6 +1563,7 @@ export default function DashboardPage() {
         setBecauseYouLikedMovies(porqueRaw);
         setTonightMovies(nocheRaw);
         setNowPlayingMovies(novedadesRaw);
+        window.sessionStorage.setItem(DASHBOARD_RECS_OK_MS_KEY, String(Date.now()));
       } finally {
         if (!cancelled) {
           setIsLoadingPopular(false);
@@ -1381,33 +1574,35 @@ export default function DashboardPage() {
       }
     };
 
-    loadRecommendations();
+    void loadRecommendations();
 
     return () => {
       cancelled = true;
       ac.abort();
     };
-  }, [gustos, ratings, selectedPlatforms]);
+  }, [gustos, ratings, selectedPlatforms, dashboardRecVisEpoch]);
 
-  const moviesForToday = useMemo(
-    () => scoreAndSortMatch(popularMovies, gustos, ratings).slice(0, 10),
-    [popularMovies, gustos, ratings]
-  );
+  const excludedTmdbIds = useMemo(() => getExcludedTmdbIds(ratings), [ratings]);
 
-  const becauseYouLikedItems = useMemo(
-    () => scoreAndSortMatch(becauseYouLikedMovies, gustos, ratings).slice(0, 10),
-    [becauseYouLikedMovies, gustos, ratings]
-  );
+  const moviesForToday = useMemo(() => {
+    const visible = popularMovies.filter((m) => !excludedTmdbIds.has(m.tmdbId));
+    return scoreAndSortMatch(visible, gustos, ratings).slice(0, 10);
+  }, [popularMovies, gustos, ratings, excludedTmdbIds]);
 
-  const tonightMoviesSorted = useMemo(
-    () => scoreAndSortMatch(tonightMovies, gustos, ratings).slice(0, 10),
-    [tonightMovies, gustos, ratings]
-  );
+  const becauseYouLikedItems = useMemo(() => {
+    const visible = becauseYouLikedMovies.filter((m) => !excludedTmdbIds.has(m.tmdbId));
+    return scoreAndSortMatch(visible, gustos, ratings).slice(0, 10);
+  }, [becauseYouLikedMovies, gustos, ratings, excludedTmdbIds]);
 
-  const visibleNews = useMemo(
-    () => scoreAndSortMatch(nowPlayingMovies, gustos, ratings).slice(0, 10),
-    [nowPlayingMovies, gustos, ratings]
-  );
+  const tonightMoviesSorted = useMemo(() => {
+    const visible = tonightMovies.filter((m) => !excludedTmdbIds.has(m.tmdbId));
+    return scoreAndSortMatch(visible, gustos, ratings).slice(0, 10);
+  }, [tonightMovies, gustos, ratings, excludedTmdbIds]);
+
+  const visibleNews = useMemo(() => {
+    const visible = nowPlayingMovies.filter((m) => !excludedTmdbIds.has(m.tmdbId));
+    return scoreAndSortMatch(visible, gustos, ratings).slice(0, 10);
+  }, [nowPlayingMovies, gustos, ratings, excludedTmdbIds]);
 
   const greeting = useMemo(() => getGreetingByHour(new Date().getHours()), []);
 
@@ -1671,6 +1866,7 @@ export default function DashboardPage() {
                   isSaved={watchlist.includes(item.id)}
                   onToggleWatchlist={toggleWatchlist}
                   onRateMovie={persistTmdbRating}
+                  onMarkSeenUnrated={persistTmdbSeenUnrated}
                   onOpenDetail={openSheet}
                 />
               ))
@@ -1720,6 +1916,7 @@ export default function DashboardPage() {
                   isSaved={watchlist.includes(item.id)}
                   onToggleWatchlist={toggleWatchlist}
                   onRateMovie={persistTmdbRating}
+                  onMarkSeenUnrated={persistTmdbSeenUnrated}
                   onOpenDetail={openSheet}
                 />
               ))
@@ -1768,6 +1965,7 @@ export default function DashboardPage() {
                   isSaved={watchlist.includes(item.id)}
                   onToggleWatchlist={toggleWatchlist}
                   onRateMovie={persistTmdbRating}
+                  onMarkSeenUnrated={persistTmdbSeenUnrated}
                   onOpenDetail={openSheet}
                 />
               ))
@@ -1799,6 +1997,7 @@ export default function DashboardPage() {
                   isSaved={watchlist.includes(item.id)}
                   onToggleWatchlist={toggleWatchlist}
                   onRateMovie={persistTmdbRating}
+                  onMarkSeenUnrated={persistTmdbSeenUnrated}
                   onOpenDetail={openSheet}
                 />
               ))
@@ -1825,6 +2024,7 @@ export default function DashboardPage() {
                   isSaved={watchlist.includes(item.id)}
                   onToggleWatchlist={toggleWatchlist}
                   onRateMovie={persistTmdbRating}
+                  onMarkSeenUnrated={persistTmdbSeenUnrated}
                   onOpenDetail={openSheet}
                 />
               ))}
