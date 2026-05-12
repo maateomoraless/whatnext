@@ -3,7 +3,8 @@
 import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import type { ChangeEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { fetchJson, TMDB_API_KEY } from "@/components/TmdbDetailSheet";
 import type { MediaType } from "@/components/TmdbDetailSheet";
 import { supabase } from "@/lib/supabase";
@@ -162,6 +163,102 @@ type RatingValue = {
   title?: string;
 };
 
+function sanitizeUsernameInput(value: string): string {
+  return value
+    .toLowerCase()
+    .replace(/[^a-z0-9-]/g, "")
+    .slice(0, 20);
+}
+
+type GustosModalSection = {
+  id: string;
+  title: string;
+  options: string[];
+  single?: boolean;
+};
+
+const GUSTOS_MODAL_SECTIONS: GustosModalSection[] = [
+  {
+    id: "generos",
+    title: "Géneros",
+    options: [
+      "Acción",
+      "Drama",
+      "Comedia",
+      "Terror",
+      "Sci-fi",
+      "Documental",
+      "Thriller",
+      "Animación",
+      "Romance",
+      "Fantasía"
+    ]
+  },
+  {
+    id: "tematica",
+    title: "Temática",
+    options: [
+      "Mafia y crimen",
+      "Superhéroes",
+      "Política y poder",
+      "Moda y lujo",
+      "Deportes",
+      "Espías",
+      "Cocina y gastronomía",
+      "Guerras e historia",
+      "Música y cultura",
+      "True crime",
+      "Viajes y naturaleza",
+      "Startups y tecnología"
+    ]
+  },
+  {
+    id: "ambiente",
+    title: "Ambiente",
+    options: [
+      "Para desconectar",
+      "Para pensar",
+      "Para reír",
+      "Para emocionarme",
+      "Adrenalina pura",
+      "Ver en familia"
+    ]
+  },
+  {
+    id: "epoca",
+    title: "Época",
+    options: ["Clásicos", "2000s", "Últimos 5 años", "Lo más reciente"]
+  },
+  {
+    id: "idioma",
+    title: "Idioma original",
+    options: ["Español", "Inglés", "Cine europeo", "Asiático", "Me da igual"]
+  }
+];
+
+function createEmptyGustosModalDraft(): GustosSelection {
+  return GUSTOS_MODAL_SECTIONS.reduce<GustosSelection>((acc, section) => {
+    acc[section.id] = [];
+    return acc;
+  }, {});
+}
+
+async function persistGustosToSupabase(userId: string, taste: GustosSelection): Promise<void> {
+  let plataformas: string[] = [];
+  try {
+    const raw = window.localStorage.getItem("plataformas");
+    if (raw) {
+      const parsed = JSON.parse(raw) as unknown;
+      if (Array.isArray(parsed)) {
+        plataformas = parsed.filter((x): x is string => typeof x === "string");
+      }
+    }
+  } catch {
+    plataformas = [];
+  }
+  await supabase.from("profiles").update({ gustos: { ...taste, plataformas } }).eq("id", userId);
+}
+
 function slugFromNombre(raw: string): string {
   const s = raw
     .trim()
@@ -265,11 +362,25 @@ export default function PerfilPage() {
   const [gustos, setGustos] = useState<GustosSelection>({});
   const [valoraciones, setValoraciones] = useState<Record<string, RatingValue>>({});
   const [watchlist, setWatchlist] = useState<string[]>([]);
-  const [platformsEditing, setPlatformsEditing] = useState(false);
   const [historyRows, setHistoryRows] = useState<RatingRow[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [watchlistRows, setWatchlistRows] = useState<WatchlistRow[]>([]);
   const [watchlistLoading, setWatchlistLoading] = useState(false);
+  const [userId, setUserId] = useState<string | null>(null);
+  const [profileUsername, setProfileUsername] = useState("");
+  const [usernameEditing, setUsernameEditing] = useState(false);
+  const [usernameDraft, setUsernameDraft] = useState("");
+  const [usernameAvailability, setUsernameAvailability] = useState<
+    "idle" | "checking" | "available" | "taken" | "error"
+  >("idle");
+  const [usernameSaving, setUsernameSaving] = useState(false);
+  const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
+  const [avatarUploading, setAvatarUploading] = useState(false);
+  const [platformsModalOpen, setPlatformsModalOpen] = useState(false);
+  const [platformDraft, setPlatformDraft] = useState<string[]>([]);
+  const [gustosModalOpen, setGustosModalOpen] = useState(false);
+  const [gustosModalDraft, setGustosModalDraft] = useState<GustosSelection>(() => createEmptyGustosModalDraft());
+  const avatarFileRef = useRef<HTMLInputElement>(null);
 
   const reloadAuthProfile = useCallback(async () => {
     const { data } = await supabase.auth.getUser();
@@ -296,6 +407,10 @@ export default function PerfilPage() {
       setNombre(n ?? "");
       setApellidosLocal(window.localStorage.getItem("apellidos") ?? "");
       setEmailLocal(window.localStorage.getItem("email") ?? "");
+      const storedUser = window.localStorage.getItem("username");
+      if (storedUser) {
+        setProfileUsername(sanitizeUsernameInput(storedUser.replace(/^@/, "")));
+      }
       const p = window.localStorage.getItem("plataformas");
       if (p) {
         const parsed = JSON.parse(p);
@@ -308,9 +423,10 @@ export default function PerfilPage() {
         const parsed = JSON.parse(g) as Record<string, unknown>;
         const next: GustosSelection = {};
         Object.entries(parsed).forEach(([k, v]) => {
-          if (Array.isArray(v)) {
-            next[k] = v.filter((item): item is string => typeof item === "string");
+          if (k === "plataformas" || !Array.isArray(v)) {
+            return;
           }
+          next[k] = v.filter((item): item is string => typeof item === "string");
         });
         setGustos(next);
       }
@@ -337,6 +453,69 @@ export default function PerfilPage() {
       /* ignore */
     }
   }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      const {
+        data: { user }
+      } = await supabase.auth.getUser();
+      if (!user || cancelled) {
+        return;
+      }
+      setUserId(user.id);
+      const { data: row } = await supabase
+        .from("profiles")
+        .select("username, avatar_url")
+        .eq("id", user.id)
+        .maybeSingle();
+      if (cancelled) {
+        return;
+      }
+      if (row?.username && typeof row.username === "string" && row.username.trim().length > 0) {
+        setProfileUsername(row.username.trim());
+      }
+      if (row?.avatar_url && typeof row.avatar_url === "string") {
+        setAvatarUrl(row.avatar_url.trim());
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    const u = usernameDraft.trim();
+    if (u.length < 3) {
+      setUsernameAvailability("idle");
+      return;
+    }
+    let cancelled = false;
+    const timeout = window.setTimeout(() => {
+      void (async () => {
+        setUsernameAvailability("checking");
+        const currentUserId = userId;
+        const { data, error } = await supabase.from("profiles").select("id").eq("username", u).limit(1);
+        if (cancelled) {
+          return;
+        }
+        if (error) {
+          setUsernameAvailability("error");
+          return;
+        }
+        const row = data?.[0];
+        if (!row) {
+          setUsernameAvailability("available");
+          return;
+        }
+        setUsernameAvailability(currentUserId && row.id === currentUserId ? "available" : "taken");
+      })();
+    }, 300);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timeout);
+    };
+  }, [usernameDraft, userId]);
 
   useEffect(() => {
     reloadStorage();
@@ -368,7 +547,13 @@ export default function PerfilPage() {
     return emailLocal.trim();
   }, [authProfile, emailLocal]);
 
-  const handle = useMemo(() => `@${slugFromNombre(displayNombreCompleto || nombre)}`, [displayNombreCompleto, nombre]);
+  const displayHandle = useMemo(() => {
+    const u = profileUsername.trim();
+    if (u.length > 0) {
+      return `@${u}`;
+    }
+    return `@${slugFromNombre(displayNombreCompleto || nombre)}`;
+  }, [profileUsername, displayNombreCompleto, nombre]);
 
   const ratedEntries = useMemo(
     () =>
@@ -545,12 +730,110 @@ export default function PerfilPage() {
     return () => ac.abort();
   }, [watchlist]);
 
-  const togglePlatformDraft = (id: string) => {
-    setPlatformIds((prev) => {
-      const next = prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id];
-      window.localStorage.setItem("plataformas", JSON.stringify(next));
-      return next;
+  const openPlatformsModal = () => {
+    setPlatformDraft([...platformIds]);
+    setPlatformsModalOpen(true);
+  };
+
+  const togglePlatformInDraft = (id: string) => {
+    setPlatformDraft((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
+  };
+
+  const savePlatformsModal = async () => {
+    const next = [...platformDraft];
+    setPlatformIds(next);
+    window.localStorage.setItem("plataformas", JSON.stringify(next));
+    if (userId) {
+      await persistGustosToSupabase(userId, gustos);
+    }
+    setPlatformsModalOpen(false);
+  };
+
+  const openGustosModal = () => {
+    const draft = createEmptyGustosModalDraft();
+    for (const section of GUSTOS_MODAL_SECTIONS) {
+      draft[section.id] = [...(gustos[section.id] ?? [])];
+    }
+    setGustosModalDraft(draft);
+    setGustosModalOpen(true);
+  };
+
+  const toggleGustosModalOption = (sectionId: string, option: string, single?: boolean) => {
+    setGustosModalDraft((prev) => {
+      const cur = prev[sectionId] ?? [];
+      if (single) {
+        return { ...prev, [sectionId]: cur.includes(option) ? [] : [option] };
+      }
+      const nextSel = cur.includes(option) ? cur.filter((x) => x !== option) : [...cur, option];
+      return { ...prev, [sectionId]: nextSel };
     });
+  };
+
+  const saveGustosModal = async () => {
+    const merged: GustosSelection = { ...gustos };
+    for (const section of GUSTOS_MODAL_SECTIONS) {
+      merged[section.id] = [...(gustosModalDraft[section.id] ?? [])];
+    }
+    setGustos(merged);
+    window.localStorage.setItem("gustos", JSON.stringify(merged));
+    if (userId) {
+      await persistGustosToSupabase(userId, merged);
+    }
+    setGustosModalOpen(false);
+  };
+
+  const saveUsernameInline = async () => {
+    if (usernameSaving) {
+      return;
+    }
+    const clean = sanitizeUsernameInput(usernameDraft);
+    if (
+      clean.length < 3 ||
+      usernameAvailability === "taken" ||
+      usernameAvailability === "checking" ||
+      usernameAvailability === "error" ||
+      (clean.length >= 3 && usernameAvailability === "idle")
+    ) {
+      return;
+    }
+    setUsernameSaving(true);
+    window.localStorage.setItem("username", `@${clean}`);
+    setProfileUsername(clean);
+    if (userId) {
+      await supabase.from("profiles").upsert({ id: userId, username: clean }, { onConflict: "id" });
+    }
+    setUsernameSaving(false);
+    setUsernameEditing(false);
+  };
+
+  const onAvatarFileChange = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file || !userId || !file.type.startsWith("image/")) {
+      return;
+    }
+    setAvatarUploading(true);
+    const ext = (file.name.split(".").pop() ?? "jpg").replace(/[^a-z0-9]/gi, "").slice(0, 8) || "jpg";
+    const path = `${userId}/avatar-${Date.now()}.${ext}`;
+    const { error: upErr } = await supabase.storage.from("avatars").upload(path, file, {
+      upsert: true,
+      contentType: file.type || "image/jpeg"
+    });
+    if (upErr) {
+      setAvatarUploading(false);
+      return;
+    }
+    const { data: pub } = supabase.storage.from("avatars").getPublicUrl(path);
+    const url = pub.publicUrl;
+    await supabase.from("profiles").update({ avatar_url: url }).eq("id", userId);
+    setAvatarUrl(url);
+    setAvatarUploading(false);
+  };
+
+  const signOut = async () => {
+    await supabase.auth.signOut();
+    router.push("/");
+    router.refresh();
   };
 
   const shareApp = async () => {
@@ -577,8 +860,30 @@ export default function PerfilPage() {
         <p className="mb-8 w-full text-center text-xs uppercase tracking-[0.35em] text-neutral-500 select-none">WhatNext?</p>
 
         <section className="mb-10 flex flex-col items-center">
-          <div className="flex h-24 w-24 items-center justify-center rounded-full bg-[#262626] text-2xl font-bold text-white">
-            {initialsFromNombre(displayNombreCompleto || nombre)}
+          <div className="relative h-24 w-24 flex-shrink-0">
+            <input
+              ref={avatarFileRef}
+              type="file"
+              accept="image/jpeg,image/png,image/webp,image/gif"
+              className="hidden"
+              onChange={(e) => void onAvatarFileChange(e)}
+            />
+            <div className="flex h-24 w-24 items-center justify-center overflow-hidden rounded-full bg-[#262626] text-2xl font-bold text-white">
+              {avatarUrl ? (
+                // eslint-disable-next-line @next/next/no-img-element -- URL dinámico de Supabase Storage
+                <img src={avatarUrl} alt="" className="h-full w-full object-cover" />
+              ) : (
+                <span>{initialsFromNombre(displayNombreCompleto || nombre)}</span>
+              )}
+            </div>
+            <button
+              type="button"
+              disabled={!userId || avatarUploading}
+              onClick={() => avatarFileRef.current?.click()}
+              className="absolute inset-x-0 bottom-0 rounded-b-full bg-black/65 py-1.5 text-[10px] font-semibold uppercase tracking-wide text-white transition hover:bg-black/80 disabled:opacity-40"
+            >
+              {avatarUploading ? "Subiendo…" : "Subir foto"}
+            </button>
           </div>
           <dl className="mt-4 w-full space-y-3 text-center">
             <div>
@@ -592,7 +897,77 @@ export default function PerfilPage() {
               <dd className="mt-1 break-all text-sm text-neutral-300">{displayEmail || "—"}</dd>
             </div>
           </dl>
-          <p className="mt-3 text-sm text-neutral-500">{handle}</p>
+
+          {!usernameEditing ? (
+            <div className="mt-3 flex flex-wrap items-center justify-center gap-2">
+              <p className="text-sm text-neutral-500">{displayHandle}</p>
+              <button
+                type="button"
+                onClick={() => {
+                  const seed =
+                    profileUsername.trim() || slugFromNombre(displayNombreCompleto || nombre);
+                  setUsernameDraft(sanitizeUsernameInput(seed));
+                  setUsernameEditing(true);
+                }}
+                className="rounded-lg border border-neutral-600 px-2.5 py-1 text-xs font-medium text-neutral-200 transition hover:border-neutral-400 hover:text-white"
+              >
+                Editar
+              </button>
+            </div>
+          ) : (
+            <div className="mt-3 w-full max-w-sm space-y-2 rounded-xl border border-[#2a2a2a] bg-[#101010] px-3 py-3">
+              <label className="block text-[11px] uppercase tracking-wide text-neutral-500">Usuario</label>
+              <div className="flex items-center gap-1 rounded-lg border border-neutral-600 bg-black px-2 py-2">
+                <span className="text-neutral-400">@</span>
+                <input
+                  type="text"
+                  inputMode="text"
+                  autoComplete="username"
+                  value={usernameDraft}
+                  onChange={(e) => setUsernameDraft(sanitizeUsernameInput(e.target.value))}
+                  className="min-w-0 flex-1 bg-transparent text-sm text-white outline-none"
+                  maxLength={20}
+                />
+              </div>
+              <p className="min-h-[18px] text-xs">
+                {usernameDraft.trim().length < 3 ? (
+                  <span className="text-neutral-500">Mínimo 3 caracteres</span>
+                ) : usernameAvailability === "checking" ? (
+                  <span className="text-neutral-400">Comprobando…</span>
+                ) : usernameAvailability === "available" ? (
+                  <span className="text-emerald-400">Disponible</span>
+                ) : usernameAvailability === "taken" ? (
+                  <span className="text-red-400">Ya está en uso</span>
+                ) : usernameAvailability === "error" ? (
+                  <span className="text-red-400">No se pudo comprobar</span>
+                ) : null}
+              </p>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => void saveUsernameInline()}
+                  disabled={
+                    usernameSaving ||
+                    sanitizeUsernameInput(usernameDraft).length < 3 ||
+                    usernameAvailability === "taken" ||
+                    usernameAvailability === "checking" ||
+                    usernameAvailability === "error" ||
+                    (sanitizeUsernameInput(usernameDraft).length >= 3 && usernameAvailability === "idle")
+                  }
+                  className="flex-1 rounded-lg bg-white py-2 text-xs font-semibold text-black transition hover:bg-neutral-100 disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  {usernameSaving ? "Guardando…" : "Guardar"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setUsernameEditing(false)}
+                  className="rounded-lg border border-neutral-600 px-3 py-2 text-xs font-medium text-neutral-200 hover:border-neutral-400 hover:text-white"
+                >
+                  Cancelar
+                </button>
+              </div>
+            </div>
+          )}
 
           <div className="mt-6 grid w-full grid-cols-3 gap-2">
             <div className="rounded-xl border border-[#2a2a2a] bg-[#101010] px-2 py-3 text-center">
@@ -615,65 +990,38 @@ export default function PerfilPage() {
             <h2 className="text-base font-semibold text-white">Tus plataformas</h2>
             <button
               type="button"
-              onClick={() => setPlatformsEditing((e) => !e)}
+              onClick={() => openPlatformsModal()}
               className="text-sm font-medium text-neutral-400 underline-offset-2 hover:text-white hover:underline"
             >
-              {platformsEditing ? "Listo" : "Editar"}
+              Editar
             </button>
           </div>
 
-          {!platformsEditing ? (
-            <div className="flex flex-wrap gap-2">
-              {platformIds.length === 0 ? (
-                <p className="text-sm text-neutral-500">No has elegido plataformas aún.</p>
-              ) : (
-                platformIds.map((pid) => {
-                  const p = PLATFORMS.find((x) => x.id === pid);
-                  if (!p) {
-                    return (
-                      <span key={pid} className="rounded-lg border border-[#333] px-3 py-2 text-xs text-neutral-300">
-                        {pid}
-                      </span>
-                    );
-                  }
+          <div className="flex flex-wrap gap-2">
+            {platformIds.length === 0 ? (
+              <p className="text-sm text-neutral-500">No has elegido plataformas aún.</p>
+            ) : (
+              platformIds.map((pid) => {
+                const p = PLATFORMS.find((x) => x.id === pid);
+                if (!p) {
                   return (
-                    <span
-                      key={pid}
-                      className="rounded-lg border-2 bg-black px-3 py-2 text-xs font-semibold text-white"
-                      style={{ borderColor: p.color }}
-                    >
-                      {p.name}
+                    <span key={pid} className="rounded-lg border border-[#333] px-3 py-2 text-xs text-neutral-300">
+                      {pid}
                     </span>
                   );
-                })
-              )}
-            </div>
-          ) : (
-            <div className="grid grid-cols-3 gap-3">
-              {PLATFORMS.map((platform) => {
-                const sel = platformIds.includes(platform.id);
+                }
                 return (
-                  <button
-                    key={platform.id}
-                    type="button"
-                    onClick={() => togglePlatformDraft(platform.id)}
-                    className="relative flex h-24 items-center justify-center rounded-xl border-2 bg-black px-2 text-center transition"
-                    style={{
-                      borderColor: sel ? platform.color : "#2a2a2a",
-                      backgroundColor: sel ? `${platform.color}22` : "#0a0a0a"
-                    }}
+                  <span
+                    key={pid}
+                    className="rounded-lg border-2 bg-black px-3 py-2 text-xs font-semibold text-white"
+                    style={{ borderColor: p.color }}
                   >
-                    {sel ? (
-                      <span className="absolute right-2 top-2 inline-flex h-4 w-4 items-center justify-center rounded-full bg-white text-[10px] font-bold text-black">
-                        ✓
-                      </span>
-                    ) : null}
-                    <span className="text-sm font-semibold text-white">{platform.name}</span>
-                  </button>
+                    {p.name}
+                  </span>
                 );
-              })}
-            </div>
-          )}
+              })
+            )}
+          </div>
         </section>
 
         <section className="mb-10">
@@ -681,7 +1029,7 @@ export default function PerfilPage() {
             <h2 className="text-base font-semibold text-white">Tus gustos</h2>
             <button
               type="button"
-              onClick={() => router.push("/onboarding/gustos")}
+              onClick={() => openGustosModal()}
               className="flex-shrink-0 rounded-lg border border-neutral-600 px-3 py-1.5 text-xs font-medium text-neutral-200 transition hover:border-neutral-400 hover:text-white"
             >
               Editar gustos
@@ -843,7 +1191,154 @@ export default function PerfilPage() {
             Compartir
           </button>
         </section>
+
+        <section className="mb-10 mt-6 rounded-xl border border-[#2a2a2a] bg-[#101010] px-4 py-4">
+          <button
+            type="button"
+            onClick={() => void signOut()}
+            className="w-full rounded-xl border border-red-900/60 bg-red-950/30 py-3 text-sm font-semibold text-red-200 transition hover:border-red-800 hover:bg-red-950/50"
+          >
+            Cerrar sesión
+          </button>
+        </section>
       </div>
+
+      {platformsModalOpen ? (
+        <div
+          className="fixed inset-0 z-[60] flex items-end justify-center bg-black/70 p-4 sm:items-center"
+          role="presentation"
+          onMouseDown={(e) => {
+            if (e.target === e.currentTarget) {
+              setPlatformsModalOpen(false);
+            }
+          }}
+        >
+          <div
+            className="max-h-[85vh] w-full max-w-[400px] overflow-y-auto rounded-2xl border border-[#2a2a2a] bg-[#101010] p-4 shadow-xl"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="platforms-modal-title"
+          >
+            <h2 id="platforms-modal-title" className="text-lg font-semibold text-white">
+              Tus plataformas
+            </h2>
+            <p className="mt-1 text-xs text-neutral-500">Marca las que usas (como en el onboarding).</p>
+            <div className="mt-4 grid grid-cols-3 gap-3">
+              {PLATFORMS.map((platform) => {
+                const sel = platformDraft.includes(platform.id);
+                return (
+                  <button
+                    key={platform.id}
+                    type="button"
+                    onClick={() => togglePlatformInDraft(platform.id)}
+                    className="relative flex h-24 items-center justify-center rounded-xl border-2 bg-black px-2 text-center transition"
+                    style={{
+                      borderColor: sel ? platform.color : "#2a2a2a",
+                      backgroundColor: sel ? `${platform.color}22` : "#0a0a0a"
+                    }}
+                  >
+                    {sel ? (
+                      <span className="absolute right-2 top-2 inline-flex h-4 w-4 items-center justify-center rounded-full bg-white text-[10px] font-bold text-black">
+                        ✓
+                      </span>
+                    ) : null}
+                    <span className="text-sm font-semibold text-white">{platform.name}</span>
+                  </button>
+                );
+              })}
+            </div>
+            <div className="mt-5 flex gap-2">
+              <button
+                type="button"
+                onClick={() => void savePlatformsModal()}
+                className="flex-1 rounded-xl bg-white py-3 text-sm font-semibold text-black transition hover:bg-neutral-100"
+              >
+                Guardar
+              </button>
+              <button
+                type="button"
+                onClick={() => setPlatformsModalOpen(false)}
+                className="rounded-xl border border-neutral-600 px-4 py-3 text-sm font-medium text-neutral-200 hover:border-neutral-400 hover:text-white"
+              >
+                Cancelar
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {gustosModalOpen ? (
+        <div
+          className="fixed inset-0 z-[60] flex items-end justify-center bg-black/70 p-4 sm:items-center"
+          role="presentation"
+          onMouseDown={(e) => {
+            if (e.target === e.currentTarget) {
+              setGustosModalOpen(false);
+            }
+          }}
+        >
+          <div
+            className="max-h-[85vh] w-full max-w-[400px] overflow-y-auto rounded-2xl border border-[#2a2a2a] bg-[#101010] p-4 shadow-xl"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="gustos-modal-title"
+          >
+            <h2 id="gustos-modal-title" className="text-lg font-semibold text-white">
+              Tus gustos
+            </h2>
+            <p className="mt-1 text-xs text-neutral-500">Géneros, temática, ambiente, época e idioma.</p>
+            <div className="mt-4 space-y-5">
+              {GUSTOS_MODAL_SECTIONS.map((section) => {
+                const cmap = PILL_COLORS[section.id] ?? {};
+                return (
+                  <div key={section.id}>
+                    <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-neutral-400">
+                      {section.title}
+                    </p>
+                    <div className="flex flex-wrap gap-1.5">
+                      {section.options.map((option) => {
+                        const sel = (gustosModalDraft[section.id] ?? []).includes(option);
+                        const color = cmap[option] ?? "#737373";
+                        return (
+                          <button
+                            key={option}
+                            type="button"
+                            onClick={() => toggleGustosModalOption(section.id, option, section.single)}
+                            className="rounded-full border px-2.5 py-1 text-[11px] font-medium transition"
+                            style={{
+                              borderColor: sel ? color : "#333",
+                              backgroundColor: sel ? `${color}33` : "transparent",
+                              color: sel ? "#fff" : "#a3a3a3"
+                            }}
+                          >
+                            {option}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+            <div className="mt-6 flex gap-2">
+              <button
+                type="button"
+                onClick={() => void saveGustosModal()}
+                className="flex-1 rounded-xl bg-white py-3 text-sm font-semibold text-black transition hover:bg-neutral-100"
+              >
+                Guardar
+              </button>
+              <button
+                type="button"
+                onClick={() => setGustosModalOpen(false)}
+                className="rounded-xl border border-neutral-600 px-4 py-3 text-sm font-medium text-neutral-200 hover:border-neutral-400 hover:text-white"
+              >
+                Cancelar
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       <nav className="fixed bottom-0 left-1/2 z-20 w-full max-w-[400px] -translate-x-1/2 border-t border-[#1f1f1f] bg-[#0a0a0a]/95 px-5 py-3 backdrop-blur">
         <ul className="grid grid-cols-4 gap-2">

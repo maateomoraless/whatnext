@@ -113,9 +113,10 @@ export default function AmigosPage() {
       const parsed = JSON.parse(raw) as Record<string, unknown>;
       const out: Record<string, string[]> = {};
       Object.entries(parsed).forEach(([k, v]) => {
-        if (Array.isArray(v)) {
-          out[k] = v.filter((item): item is string => typeof item === "string");
+        if (k === "plataformas" || !Array.isArray(v)) {
+          return;
         }
+        out[k] = v.filter((item): item is string => typeof item === "string");
       });
       return out;
     } catch {
@@ -130,7 +131,10 @@ export default function AmigosPage() {
     if (!gustos) {
       return out;
     }
-    Object.values(gustos).forEach((values) => {
+    Object.entries(gustos).forEach(([key, values]) => {
+      if (key === "plataformas" || !Array.isArray(values)) {
+        return;
+      }
       values.forEach((v) => out.add(v.toLowerCase()));
     });
     return out;
