@@ -19,6 +19,8 @@ import {
   type WatchProvidersResponse
 } from "@/components/TmdbDetailSheet";
 import { bumpMovieStreak } from "@/lib/movieStreak";
+import { logUserActivity, syncProfileFromLocal } from "@/lib/social";
+import { supabase } from "@/lib/supabase";
 
 function HomeIcon({ active = false }: { active?: boolean }) {
   return (
@@ -150,6 +152,14 @@ export default function BuscarPage() {
     const t = window.setTimeout(() => setDebouncedQuery(query.trim()), 400);
     return () => window.clearTimeout(t);
   }, [query]);
+
+  useEffect(() => {
+    void supabase.auth.getUser().then(({ data: { user } }) => {
+      if (user) {
+        void syncProfileFromLocal(user);
+      }
+    });
+  }, []);
 
   useEffect(() => {
     try {
@@ -286,9 +296,19 @@ export default function BuscarPage() {
       return;
     }
     const id = watchlistId(sheet.media, sheet.item.id);
+    const title = sheet.media === "movie" ? sheet.item.title : sheet.item.name;
     setWatchlist((prev) => {
-      const next = prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id];
+      const exists = prev.includes(id);
+      const next = exists ? prev.filter((x) => x !== id) : [...prev, id];
       window.localStorage.setItem("watchlist", JSON.stringify(Array.from(new Set(next))));
+      if (!exists) {
+        void logUserActivity({
+          type: "watchlist",
+          movieId: sheet.item.id,
+          movieTitle: title ?? undefined,
+          posterPath: sheet.item.poster_path
+        });
+      }
       return Array.from(new Set(next));
     });
   }, [sheet]);
@@ -327,6 +347,15 @@ export default function BuscarPage() {
       setStarsPanelOpen(false);
       setSheet(null);
       bumpMovieStreak();
+      if (sheet.media === "movie") {
+        void logUserActivity({
+          type: "rated",
+          movieId: sheet.item.id,
+          movieTitle: title,
+          posterPath: sheet.item.poster_path,
+          rating: stars
+        });
+      }
     },
     [sheet, detailMovie, detailTv]
   );

@@ -5,6 +5,7 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { bumpMovieStreak, readEffectiveMovieStreak } from "@/lib/movieStreak";
+import { logUserActivity, syncProfileFromLocal } from "@/lib/social";
 import { supabase } from "@/lib/supabase";
 import {
   TmdbDetailSheet,
@@ -1253,6 +1254,13 @@ export default function DashboardPage() {
       return next;
     });
     setStreakDays(bumpMovieStreak());
+    void logUserActivity({
+      type: "rated",
+      movieId: item.tmdbId,
+      movieTitle: item.title,
+      posterPath: item.posterPath ?? null,
+      rating: stars
+    });
   };
 
   const persistTmdbSeenUnrated = useCallback((item: MatchItem) => {
@@ -1271,6 +1279,12 @@ export default function DashboardPage() {
       return next;
     });
     setStreakDays(bumpMovieStreak());
+    void logUserActivity({
+      type: "watched",
+      movieId: item.tmdbId,
+      movieTitle: item.title,
+      posterPath: item.posterPath ?? null
+    });
   }, []);
 
   useEffect(() => {
@@ -1310,6 +1324,7 @@ export default function DashboardPage() {
         window.localStorage.setItem("nombre", display);
         setName(display);
       }
+      void syncProfileFromLocal(user);
     });
 
     return () => {
@@ -1657,11 +1672,20 @@ export default function DashboardPage() {
   }, [allCardItems, watchlist]);
 
   const toggleWatchlist = (id: string) => {
+    const item = allCardItems.find((row) => row.id === id);
     setWatchlist((prev) => {
       const exists = prev.includes(id);
       const next = exists ? prev.filter((item) => item !== id) : [...prev, id];
       const deduped = Array.from(new Set(next));
       window.localStorage.setItem("watchlist", JSON.stringify(deduped));
+      if (!exists && item) {
+        void logUserActivity({
+          type: "watchlist",
+          movieId: item.tmdbId,
+          movieTitle: item.title,
+          posterPath: item.posterPath ?? null
+        });
+      }
       return deduped;
     });
   };
@@ -1758,10 +1782,20 @@ export default function DashboardPage() {
       return;
     }
     const id = watchlistId(sheet.media, sheet.item.id);
+    const title = sheet.media === "movie" ? sheet.item.title : sheet.item.name;
     setWatchlist((prev) => {
-      const next = prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id];
+      const exists = prev.includes(id);
+      const next = exists ? prev.filter((x) => x !== id) : [...prev, id];
       const deduped = Array.from(new Set(next));
       window.localStorage.setItem("watchlist", JSON.stringify(deduped));
+      if (!exists) {
+        void logUserActivity({
+          type: "watchlist",
+          movieId: sheet.item.id,
+          movieTitle: title ?? undefined,
+          posterPath: sheet.item.poster_path ?? null
+        });
+      }
       return deduped;
     });
   }, [sheet]);
@@ -1814,6 +1848,15 @@ export default function DashboardPage() {
       setSheet(null);
       setSheetShareMatch(undefined);
       setStreakDays(bumpMovieStreak());
+      if (sheet.media === "movie") {
+        void logUserActivity({
+          type: "rated",
+          movieId: sheet.item.id,
+          movieTitle: title,
+          posterPath: sheet.item.poster_path ?? null,
+          rating: stars
+        });
+      }
     },
     [sheet, detailMovie, detailTv]
   );
@@ -2137,6 +2180,12 @@ export default function DashboardPage() {
                           const next = [...prev, wid];
                           const deduped = Array.from(new Set(next));
                           window.localStorage.setItem("watchlist", JSON.stringify(deduped));
+                          void logUserActivity({
+                            type: "watchlist",
+                            movieId: moodMovie.id,
+                            movieTitle: moodMovie.title,
+                            posterPath: moodMovie.posterPath
+                          });
                           return deduped;
                         });
                       }}
