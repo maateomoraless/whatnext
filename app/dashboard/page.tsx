@@ -1691,13 +1691,8 @@ export default function DashboardPage() {
   };
 
   const openSheet = useCallback((item: MatchItem) => {
-    setSheet({ item: matchItemToMultiSearch(item), media: item.mediaType });
-    setSheetShareMatch(typeof item.match === "number" && Number.isFinite(item.match) ? item.match : undefined);
-    setStarsPanelOpen(false);
-    setDetailMovie(null);
-    setDetailTv(null);
-    setProviders([]);
-  }, []);
+    router.push(`/pelicula/${item.tmdbId}`);
+  }, [router]);
 
   const openMoodModal = useCallback((pick: MoodPick) => {
     moodAbortRef.current?.abort();

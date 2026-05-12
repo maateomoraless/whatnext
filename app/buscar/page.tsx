@@ -2,6 +2,7 @@
 
 import Image from "next/image";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import {
   TmdbDetailSheet,
@@ -129,6 +130,7 @@ function HorizontalPosterRow({
 }
 
 export default function BuscarPage() {
+  const router = useRouter();
   const [query, setQuery] = useState("");
   const [debouncedQuery, setDebouncedQuery] = useState("");
   const [searchResults, setSearchResults] = useState<MultiSearchResult[]>([]);
@@ -239,6 +241,17 @@ export default function BuscarPage() {
     setDetailTv(null);
     setProviders([]);
   }, []);
+
+  const handlePick = useCallback(
+    (item: MultiSearchResult, media: MediaType) => {
+      if (media === "movie") {
+        router.push(`/pelicula/${item.id}`);
+        return;
+      }
+      openSheet(item, media);
+    },
+    [openSheet, router]
+  );
 
   useEffect(() => {
     if (!sheet) {
@@ -396,7 +409,7 @@ export default function BuscarPage() {
                     <button
                       key={`${media}-${item.id}`}
                       type="button"
-                      onClick={() => openSheet(item, media)}
+                      onClick={() => handlePick(item, media)}
                       className="text-left"
                     >
                       <div className="aspect-[2/3] w-full overflow-hidden rounded-lg border border-[#2a2a2a] bg-[#141414]">
@@ -433,19 +446,19 @@ export default function BuscarPage() {
               title="Tendencias hoy"
               defaultMedia="movie"
               items={trendingMovies}
-              onPick={(item, media) => openSheet(item, media)}
+              onPick={handlePick}
             />
             <HorizontalPosterRow
               title="Mejor valoradas"
               defaultMedia="movie"
               items={topRatedMovies}
-              onPick={(item, media) => openSheet(item, media)}
+              onPick={handlePick}
             />
             <HorizontalPosterRow
               title="Series populares"
               defaultMedia="tv"
               items={trendingTv}
-              onPick={(item, media) => openSheet(item, media)}
+              onPick={handlePick}
             />
           </>
         )}
