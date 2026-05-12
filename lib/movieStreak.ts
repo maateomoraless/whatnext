@@ -1,3 +1,10 @@
+import {
+  getActiveStorageUserId,
+  readUserDataCacheJson,
+  saveUserData,
+  type RachaPayload
+} from "@/lib/userStorage";
+
 const MOVIE_STREAK_LS = "whatnext-daily-movie-streak";
 const STREAK_MILESTONE_BANNERS_SHOWN_LS = "whatnext-streak-milestone-banners-shown";
 
@@ -13,7 +20,7 @@ function streakCalendarDaysBetween(isoA: string, isoB: string): number {
 
 type StreakStorage = { lastActiveDate: string; count: number };
 
-function readStreakFromStorage(): StreakStorage | null {
+function readLegacyDailyFromLs(): StreakStorage | null {
   if (typeof window === "undefined") {
     return null;
   }
@@ -37,16 +44,62 @@ function readStreakFromStorage(): StreakStorage | null {
   }
 }
 
+function readRachaPayload(): RachaPayload {
+  const uid = getActiveStorageUserId();
+  if (uid) {
+    return readUserDataCacheJson<RachaPayload>(uid, "racha") ?? {};
+  }
+  const daily = readLegacyDailyFromLs();
+  if (!daily) {
+    return {};
+  }
+  return { daily };
+}
+
+function readDailyEffective(): StreakStorage | null {
+  const uid = getActiveStorageUserId();
+  if (uid) {
+    const p = readRachaPayload();
+    return p.daily ?? null;
+  }
+  return readLegacyDailyFromLs();
+}
+
+function writeRachaPayload(next: RachaPayload): void {
+  const uid = getActiveStorageUserId();
+  if (typeof window === "undefined") {
+    return;
+  }
+  if (uid) {
+    void saveUserData(uid, "racha", next);
+    return;
+  }
+  if (next.daily) {
+    window.localStorage.setItem(MOVIE_STREAK_LS, JSON.stringify(next.daily));
+  } else {
+    window.localStorage.removeItem(MOVIE_STREAK_LS);
+  }
+  if (next.milestonesShown && next.milestonesShown.length > 0) {
+    window.localStorage.setItem(STREAK_MILESTONE_BANNERS_SHOWN_LS, JSON.stringify(next.milestonesShown));
+  } else {
+    window.localStorage.removeItem(STREAK_MILESTONE_BANNERS_SHOWN_LS);
+  }
+}
+
 /** Racha mostrada: 0 si pasó más de un día sin actividad. */
 export function readEffectiveMovieStreak(): number {
   const today = streakTodayKey();
-  const s = readStreakFromStorage();
+  const s = readDailyEffective();
   if (!s) {
     return 0;
   }
   const diff = streakCalendarDaysBetween(s.lastActiveDate, today);
   if (diff >= 2) {
-    window.localStorage.removeItem(MOVIE_STREAK_LS);
+    const prev = readRachaPayload();
+    writeRachaPayload({ ...prev, daily: null });
+    if (typeof window !== "undefined") {
+      window.localStorage.removeItem(MOVIE_STREAK_LS);
+    }
     return 0;
   }
   return s.count;
@@ -54,16 +107,14 @@ export function readEffectiveMovieStreak(): number {
 
 export type BumpMovieStreakResult = {
   count: number;
-  /**
-   * True cuando esta llamada avanzó la racha (nuevo día consecutivo, primer registro,
-   * o reinicio tras hueco). False si ya hubo actividad hoy (misma racha, mismo contador).
-   */
   streakJustAdvanced: boolean;
 };
 
 export function bumpMovieStreak(): BumpMovieStreakResult {
   const today = streakTodayKey();
-  const s = readStreakFromStorage();
+  const uid = getActiveStorageUserId();
+  const payload = readRachaPayload();
+  const s = uid ? payload.daily ?? null : payload.daily ?? readLegacyDailyFromLs();
   let nextCount: number;
   let streakJustAdvanced: boolean;
 
@@ -81,12 +132,25 @@ export function bumpMovieStreak(): BumpMovieStreakResult {
     streakJustAdvanced = true;
   }
 
-  const payload: StreakStorage = { lastActiveDate: today, count: nextCount };
-  window.localStorage.setItem(MOVIE_STREAK_LS, JSON.stringify(payload));
+  const daily: StreakStorage = { lastActiveDate: today, count: nextCount };
+  const nextPayload: RachaPayload = {
+    ...payload,
+    daily
+  };
+  writeRachaPayload(nextPayload);
   return { count: nextCount, streakJustAdvanced };
 }
 
 function readMilestonesShown(): Set<number> {
+  const uid = getActiveStorageUserId();
+  if (uid) {
+    const payload = readRachaPayload();
+    const arr = payload.milestonesShown;
+    if (Array.isArray(arr)) {
+      return new Set(arr.filter((n): n is number => n === 3 || n === 7 || n === 30));
+    }
+    return new Set();
+  }
   if (typeof window === "undefined") {
     return new Set();
   }
@@ -106,12 +170,15 @@ function readMilestonesShown(): Set<number> {
 }
 
 function markMilestoneShown(milestone: 3 | 7 | 30): void {
-  if (typeof window === "undefined") {
-    return;
-  }
   const s = readMilestonesShown();
   s.add(milestone);
-  window.localStorage.setItem(STREAK_MILESTONE_BANNERS_SHOWN_LS, JSON.stringify([...s]));
+  const uid = getActiveStorageUserId();
+  const payload = readRachaPayload();
+  const next: RachaPayload = {
+    ...payload,
+    milestonesShown: [...s]
+  };
+  writeRachaPayload(next);
 }
 
 function streakMilestoneMessage(count: 3 | 7 | 30): string {
@@ -137,7 +204,6 @@ function tryClaimMilestoneMessage(count: number): string | null {
   return streakMilestoneMessage(milestone);
 }
 
-/** Tras valorar o marcar visto: solo si la racha acaba de subir ese día. */
 export function claimStreakMilestoneAfterBump(bump: BumpMovieStreakResult): string | null {
   if (!bump.streakJustAdvanced) {
     return null;
@@ -145,9 +211,6 @@ export function claimStreakMilestoneAfterBump(bump: BumpMovieStreakResult): stri
   return tryClaimMilestoneMessage(bump.count);
 }
 
-/**
- * Al abrir el dashboard: si ya alcanzó 3 / 7 / 30 días (p. ej. en otra pantalla) y aún no se mostró el hito.
- */
 export function claimPendingStreakMilestoneOnVisit(): string | null {
   return tryClaimMilestoneMessage(readEffectiveMovieStreak());
 }

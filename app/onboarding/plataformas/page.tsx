@@ -1,9 +1,16 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { AnimatePresence, motion } from "framer-motion";
 import { MotionButton } from "@/components/ui/MotionButton";
+import { supabase } from "@/lib/supabase";
+import {
+  readUserDataCacheJson,
+  saveUserData,
+  setActiveStorageUserId,
+  syncAllUserData
+} from "@/lib/userStorage";
 
 type Platform = {
   id: string;
@@ -24,27 +31,42 @@ export default function OnboardingPlataformasPage() {
   const router = useRouter();
   const [isExiting, setIsExiting] = useState(false);
   const [selectedPlatforms, setSelectedPlatforms] = useState<string[]>([]);
+  const userIdRef = useRef<string | null>(null);
 
   useEffect(() => {
-    const storedPlatforms = window.localStorage.getItem("plataformas");
-    if (!storedPlatforms) {
-      return;
-    }
-
-    try {
-      const parsed = JSON.parse(storedPlatforms);
-      if (Array.isArray(parsed)) {
-        setSelectedPlatforms(parsed.filter((item) => typeof item === "string"));
+    void (async () => {
+      const {
+        data: { user }
+      } = await supabase.auth.getUser();
+      if (user) {
+        userIdRef.current = user.id;
+        setActiveStorageUserId(user.id);
+        await syncAllUserData(user.id);
+        const parsed = readUserDataCacheJson<string[]>(user.id, "plataformas");
+        if (parsed && Array.isArray(parsed)) {
+          setSelectedPlatforms(parsed.filter((item) => typeof item === "string"));
+        }
+      } else {
+        const raw = typeof window !== "undefined" ? window.localStorage.getItem("plataformas") : null;
+        if (raw) {
+          try {
+            const parsed = JSON.parse(raw) as unknown;
+            if (Array.isArray(parsed)) {
+              setSelectedPlatforms(parsed.filter((item) => typeof item === "string"));
+            }
+          } catch {
+            /* ignore */
+          }
+        }
       }
-    } catch {
-      // Ignore malformed localStorage data.
-    }
+    })();
   }, []);
 
   const togglePlatform = (id: string) => {
     setSelectedPlatforms((prev) => {
       const next = prev.includes(id) ? prev.filter((item) => item !== id) : [...prev, id];
-      window.localStorage.setItem("plataformas", JSON.stringify(next));
+      const uid = userIdRef.current;
+      void saveUserData(uid, "plataformas", next);
       return next;
     });
   };

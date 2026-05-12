@@ -2,27 +2,28 @@
 
 import type { User } from "@supabase/supabase-js";
 import { supabase } from "@/lib/supabase";
+import { readUserDataCache, readUserDataCacheJson } from "@/lib/userStorage";
 
 type ActivityType = "watched" | "watchlist" | "rated";
 
 type GustosSelection = Record<string, string[]>;
 
-function readLocalName(): string | null {
-  const raw = window.localStorage.getItem("nombre");
-  if (!raw) {
-    return null;
+function readLocalName(userId: string): string | null {
+  const meta = readUserDataCacheJson<{ nombre?: string }>(userId, "perfil_meta");
+  const n = meta?.nombre?.trim();
+  if (n) {
+    return n;
   }
-  const trimmed = raw.trim();
-  return trimmed.length > 0 ? trimmed : null;
+  const fallback = readUserDataCache(userId, "nombre")?.trim();
+  return fallback && fallback.length > 0 ? fallback : null;
 }
 
-function readLocalGustos(): GustosSelection | null {
-  const raw = window.localStorage.getItem("gustos");
-  if (!raw) {
+function readLocalGustos(userId: string): GustosSelection | null {
+  const parsed = readUserDataCacheJson<Record<string, unknown>>(userId, "gustos");
+  if (!parsed) {
     return null;
   }
   try {
-    const parsed = JSON.parse(raw) as Record<string, unknown>;
     const out: GustosSelection = {};
     Object.entries(parsed).forEach(([key, value]) => {
       if (!Array.isArray(value)) {
@@ -38,7 +39,7 @@ function readLocalGustos(): GustosSelection | null {
 
 export async function syncProfileFromLocal(user: User): Promise<void> {
   const fullName =
-    readLocalName() ??
+    readLocalName(user.id) ??
     (typeof user.user_metadata?.full_name === "string" ? user.user_metadata.full_name.trim() : null) ??
     user.email ??
     null;
@@ -48,7 +49,7 @@ export async function syncProfileFromLocal(user: User): Promise<void> {
     null;
   const avatarUrl =
     typeof user.user_metadata?.avatar_url === "string" ? user.user_metadata.avatar_url.trim() : null;
-  const gustos = readLocalGustos();
+  const gustos = readLocalGustos(user.id);
 
   await supabase.from("profiles").upsert(
     {

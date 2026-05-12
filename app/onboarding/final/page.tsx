@@ -4,6 +4,8 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
 import { MotionButton } from "@/components/ui/MotionButton";
+import { supabase } from "@/lib/supabase";
+import { loadUserData, setActiveStorageUserId, syncAllUserData } from "@/lib/userStorage";
 
 type ResultItem = {
   id: string;
@@ -54,10 +56,24 @@ export default function OnboardingFinalPage() {
   const [name, setName] = useState("");
 
   useEffect(() => {
-    const storedName = window.localStorage.getItem("nombre");
-    if (storedName) {
-      setName(storedName);
-    }
+    void (async () => {
+      const {
+        data: { user }
+      } = await supabase.auth.getUser();
+      if (user) {
+        setActiveStorageUserId(user.id);
+        await syncAllUserData(user.id);
+        const storedName = await loadUserData(user.id, "nombre");
+        if (storedName) {
+          setName(storedName);
+        }
+      } else {
+        const storedName = await loadUserData(null, "nombre");
+        if (storedName) {
+          setName(storedName);
+        }
+      }
+    })();
   }, []);
 
   return (

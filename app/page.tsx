@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
+import { saveUserData, setActiveStorageUserId, syncAllUserData } from "@/lib/userStorage";
 
 type Poster = {
   x: number;
@@ -50,7 +51,10 @@ export default function HomePage() {
   useEffect(() => {
     const checkSession = async () => {
       const { data } = await supabase.auth.getSession();
-      if (data.session) {
+      if (data.session?.user) {
+        const uid = data.session.user.id;
+        setActiveStorageUserId(uid);
+        await syncAllUserData(uid);
         router.push("/dashboard");
       }
     };
@@ -66,9 +70,14 @@ export default function HomePage() {
       setAuthError(error.message);
       return;
     }
-    if (data.session) {
-      router.push("/dashboard");
+    if (!data.session?.user) {
+      setAuthError("No se pudo iniciar sesión.");
+      return;
     }
+    const uid = data.session.user.id;
+    setActiveStorageUserId(uid);
+    await syncAllUserData(uid);
+    router.push("/dashboard");
   };
 
   const handleRegisterSubmit = async () => {
@@ -106,9 +115,18 @@ export default function HomePage() {
       return;
     }
 
-    window.localStorage.setItem("nombre", nombreTrim);
-    window.localStorage.setItem("apellidos", apellidosTrim);
-    window.localStorage.setItem("email", emailTrim);
+    const { data: sess } = await supabase.auth.getSession();
+    if (sess.session?.user) {
+      const uid = sess.session.user.id;
+      setActiveStorageUserId(uid);
+      await saveUserData(uid, "nombre", nombreTrim);
+      await saveUserData(uid, "apellidos", apellidosTrim);
+      await saveUserData(uid, "email", emailTrim);
+    } else {
+      window.localStorage.setItem("nombre", nombreTrim);
+      window.localStorage.setItem("apellidos", apellidosTrim);
+      window.localStorage.setItem("email", emailTrim);
+    }
     closeRegister();
     router.push("/onboarding/nombre");
   };

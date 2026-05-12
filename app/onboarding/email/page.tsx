@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
 import { MotionButton } from "@/components/ui/MotionButton";
 import { supabase } from "@/lib/supabase";
+import { setActiveStorageUserId, syncAllUserData } from "@/lib/userStorage";
 
 export default function OnboardingEmailPage() {
   const router = useRouter();
@@ -19,7 +20,7 @@ export default function OnboardingEmailPage() {
     setError(null);
     setInfo(null);
     setLoading(true);
-    const { error: signInError } = await supabase.auth.signInWithPassword({
+    const { data: signData, error: signInError } = await supabase.auth.signInWithPassword({
       email: email.trim(),
       password
     });
@@ -27,6 +28,11 @@ export default function OnboardingEmailPage() {
     if (signInError) {
       setError(signInError.message);
       return;
+    }
+    if (signData.session?.user) {
+      const uid = signData.session.user.id;
+      setActiveStorageUserId(uid);
+      await syncAllUserData(uid);
     }
     router.push("/onboarding/nombre");
   };

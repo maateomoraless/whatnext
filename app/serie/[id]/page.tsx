@@ -2,7 +2,7 @@
 
 import Image from "next/image";
 import { useParams, useRouter } from "next/navigation";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { motion, type Variants } from "framer-motion";
 import { MotionButton } from "@/components/ui/MotionButton";
 import { SkeletonShimmer } from "@/components/ui/SkeletonShimmer";
@@ -17,6 +17,13 @@ import {
 import { freshRatedAtIso } from "@/lib/historyValoraciones";
 import { bumpMovieStreak } from "@/lib/movieStreak";
 import { logUserActivity } from "@/lib/social";
+import { supabase } from "@/lib/supabase";
+import {
+  readUserDataCacheJson,
+  saveUserData,
+  setActiveStorageUserId,
+  syncAllUserData
+} from "@/lib/userStorage";
 
 type TvShowDetail = {
   name?: string;
@@ -108,19 +115,25 @@ export default function SerieDetallePage() {
   const [watchlist, setWatchlist] = useState<string[]>([]);
   const [showStars, setShowStars] = useState(false);
 
+  const storageUserIdRef = useRef<string | null>(null);
+
   useEffect(() => {
-    try {
-      const raw = window.localStorage.getItem("watchlist");
-      if (!raw) {
+    void (async () => {
+      const {
+        data: { user }
+      } = await supabase.auth.getUser();
+      if (!user) {
         return;
       }
-      const parsed = JSON.parse(raw);
-      if (Array.isArray(parsed)) {
-        setWatchlist(parsed.filter((v): v is string => typeof v === "string"));
+      const uid = user.id;
+      storageUserIdRef.current = uid;
+      setActiveStorageUserId(uid);
+      await syncAllUserData(uid);
+      const wl = readUserDataCacheJson<string[]>(uid, "watchlist");
+      if (wl && Array.isArray(wl)) {
+        setWatchlist(wl.filter((v): v is string => typeof v === "string"));
       }
-    } catch {
-      // ignore bad local storage
-    }
+    })();
   }, []);
 
   useEffect(() => {
@@ -197,7 +210,10 @@ export default function SerieDetallePage() {
       const exists = prev.includes(wid);
       const next = exists ? prev.filter((v) => v !== wid) : [...prev, wid];
       const deduped = Array.from(new Set(next));
-      window.localStorage.setItem("watchlist", JSON.stringify(deduped));
+      const uid = storageUserIdRef.current;
+      if (uid) {
+        void saveUserData(uid, "watchlist", deduped);
+      }
       if (!exists) {
         void logUserActivity({
           type: "watchlist",
@@ -214,19 +230,14 @@ export default function SerieDetallePage() {
     const key = ratingStorageKey("tv", tvId);
     const genreIds = detail?.genres?.map((g) => g.id).filter((n) => Number.isFinite(n)) ?? [];
     const ratedAt = freshRatedAtIso();
-    try {
-      const raw = window.localStorage.getItem("valoraciones");
-      const prev = raw ? (JSON.parse(raw) as Record<string, unknown>) : {};
-      const next = {
-        ...prev,
-        [key]: { rating: stars, unseen: false, genreIds, title, ratedAt }
-      };
-      window.localStorage.setItem("valoraciones", JSON.stringify(next));
-    } catch {
-      window.localStorage.setItem(
-        "valoraciones",
-        JSON.stringify({ [key]: { rating: stars, unseen: false, genreIds, title, ratedAt } })
-      );
+    const uid = storageUserIdRef.current;
+    const prev = (uid && readUserDataCacheJson<Record<string, unknown>>(uid, "valoraciones")) || {};
+    const next = {
+      ...prev,
+      [key]: { rating: stars, unseen: false, genreIds, title, ratedAt }
+    };
+    if (uid) {
+      void saveUserData(uid, "valoraciones", next);
     }
     setShowStars(false);
     void bumpMovieStreak();
@@ -242,19 +253,14 @@ export default function SerieDetallePage() {
   const markAsSeen = () => {
     const key = ratingStorageKey("tv", tvId);
     const genreIds = detail?.genres?.map((g) => g.id).filter((n) => Number.isFinite(n)) ?? [];
-    try {
-      const raw = window.localStorage.getItem("valoraciones");
-      const prev = raw ? (JSON.parse(raw) as Record<string, unknown>) : {};
-      const next = {
-        ...prev,
-        [key]: { rating: 0, unseen: true, genreIds, title }
-      };
-      window.localStorage.setItem("valoraciones", JSON.stringify(next));
-    } catch {
-      window.localStorage.setItem(
-        "valoraciones",
-        JSON.stringify({ [key]: { rating: 0, unseen: true, genreIds, title } })
-      );
+    const uid = storageUserIdRef.current;
+    const prev = (uid && readUserDataCacheJson<Record<string, unknown>>(uid, "valoraciones")) || {};
+    const next = {
+      ...prev,
+      [key]: { rating: 0, unseen: true, genreIds, title }
+    };
+    if (uid) {
+      void saveUserData(uid, "valoraciones", next);
     }
     void bumpMovieStreak();
     void logUserActivity({

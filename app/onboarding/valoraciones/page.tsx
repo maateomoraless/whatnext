@@ -1,11 +1,18 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { AnimatePresence, motion } from "framer-motion";
 import { MotionButton } from "@/components/ui/MotionButton";
 import { freshRatedAtIso } from "@/lib/historyValoraciones";
+import { supabase } from "@/lib/supabase";
+import {
+  readUserDataCacheJson,
+  saveUserData,
+  setActiveStorageUserId,
+  syncAllUserData
+} from "@/lib/userStorage";
 
 type Movie = {
   id: string;
@@ -109,34 +116,65 @@ export default function OnboardingValoracionesPage() {
   const [isExiting, setIsExiting] = useState(false);
   const [ratings, setRatings] = useState<Ratings>(() => createInitialRatings());
   const [postersByMovieId, setPostersByMovieId] = useState<Record<string, string>>({});
+  const userIdRef = useRef<string | null>(null);
 
   useEffect(() => {
-    const stored = window.localStorage.getItem("valoraciones");
-    if (!stored) {
-      return;
-    }
-
-    try {
-      const parsed = JSON.parse(stored) as Record<string, RatingValue>;
-      const next = createInitialRatings();
-      MOVIES.forEach((movie) => {
-        const value = parsed[movie.id];
-        if (!value) {
+    void (async () => {
+      const {
+        data: { user }
+      } = await supabase.auth.getUser();
+      if (user) {
+        userIdRef.current = user.id;
+        setActiveStorageUserId(user.id);
+        await syncAllUserData(user.id);
+        const parsed = readUserDataCacheJson<Record<string, RatingValue>>(user.id, "valoraciones");
+        if (parsed) {
+          const next = createInitialRatings();
+          MOVIES.forEach((movie) => {
+            const value = parsed[movie.id];
+            if (!value) {
+              return;
+            }
+            const sanitizedRating =
+              typeof value.rating === "number" && value.rating >= 0 && value.rating <= 5
+                ? value.rating
+                : 0;
+            next[movie.id] = {
+              rating: sanitizedRating,
+              unseen: Boolean(value.unseen)
+            };
+          });
+          setRatings(next);
+        }
+      } else {
+        const stored =
+          typeof window !== "undefined" ? window.localStorage.getItem("valoraciones") : null;
+        if (!stored) {
           return;
         }
-        const sanitizedRating =
-          typeof value.rating === "number" && value.rating >= 0 && value.rating <= 5
-            ? value.rating
-            : 0;
-        next[movie.id] = {
-          rating: sanitizedRating,
-          unseen: Boolean(value.unseen)
-        };
-      });
-      setRatings(next);
-    } catch {
-      // Ignore malformed localStorage data.
-    }
+        try {
+          const parsed = JSON.parse(stored) as Record<string, RatingValue>;
+          const next = createInitialRatings();
+          MOVIES.forEach((movie) => {
+            const value = parsed[movie.id];
+            if (!value) {
+              return;
+            }
+            const sanitizedRating =
+              typeof value.rating === "number" && value.rating >= 0 && value.rating <= 5
+                ? value.rating
+                : 0;
+            next[movie.id] = {
+              rating: sanitizedRating,
+              unseen: Boolean(value.unseen)
+            };
+          });
+          setRatings(next);
+        } catch {
+          /* ignore */
+        }
+      }
+    })();
   }, []);
 
   useEffect(() => {
@@ -178,7 +216,7 @@ export default function OnboardingValoracionesPage() {
 
   const saveRatings = (next: Ratings) => {
     setRatings(next);
-    window.localStorage.setItem("valoraciones", JSON.stringify(next));
+    void saveUserData(userIdRef.current, "valoraciones", next);
   };
 
   const setMovieRating = (movieId: string, rating: number) => {

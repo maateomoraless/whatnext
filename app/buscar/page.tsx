@@ -2,7 +2,7 @@
 
 import Image from "next/image";
 import { useRouter } from "next/navigation";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { motion, type Variants } from "framer-motion";
 import { BottomNav } from "@/components/BottomNav";
 import { SkeletonShimmer } from "@/components/ui/SkeletonShimmer";
@@ -25,6 +25,12 @@ import { bumpMovieStreak } from "@/lib/movieStreak";
 import { freshRatedAtIso } from "@/lib/historyValoraciones";
 import { logUserActivity, syncProfileFromLocal } from "@/lib/social";
 import { supabase } from "@/lib/supabase";
+import {
+  readUserDataCacheJson,
+  saveUserData,
+  setActiveStorageUserId,
+  syncAllUserData
+} from "@/lib/userStorage";
 
 const buscarGridContainer: Variants = {
   hidden: {},
@@ -130,6 +136,27 @@ export default function BuscarPage() {
 
   const [watchlist, setWatchlist] = useState<string[]>([]);
   const [starsPanelOpen, setStarsPanelOpen] = useState(false);
+  const storageUserIdRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    void (async () => {
+      const {
+        data: { user }
+      } = await supabase.auth.getUser();
+      if (!user) {
+        return;
+      }
+      const uid = user.id;
+      storageUserIdRef.current = uid;
+      setActiveStorageUserId(uid);
+      await syncAllUserData(uid);
+      void syncProfileFromLocal(user);
+      const wl = readUserDataCacheJson<string[]>(uid, "watchlist");
+      if (wl && Array.isArray(wl)) {
+        setWatchlist(wl.filter((x): x is string => typeof x === "string"));
+      }
+    })();
+  }, []);
 
   useEffect(() => {
     const t = window.setTimeout(() => setDebouncedQuery(query.trim()), 400);
@@ -137,29 +164,6 @@ export default function BuscarPage() {
   }, [query]);
 
   useEffect(() => {
-    void supabase.auth.getUser().then(({ data: { user } }) => {
-      if (user) {
-        void syncProfileFromLocal(user);
-      }
-    });
-  }, []);
-
-  useEffect(() => {
-    try {
-      const w = window.localStorage.getItem("watchlist");
-      if (w) {
-        const parsed = JSON.parse(w);
-        if (Array.isArray(parsed)) {
-          setWatchlist(parsed.filter((x): x is string => typeof x === "string"));
-        }
-      }
-    } catch {
-      /* ignore */
-    }
-  }, []);
-
-  useEffect(() => {
-    const ac = new AbortController();
     async function loadBrowse() {
       setBrowseLoading(true);
       const base = `https://api.themoviedb.org/3`;
@@ -298,7 +302,11 @@ export default function BuscarPage() {
     setWatchlist((prev) => {
       const exists = prev.includes(id);
       const next = exists ? prev.filter((x) => x !== id) : [...prev, id];
-      window.localStorage.setItem("watchlist", JSON.stringify(Array.from(new Set(next))));
+      const deduped = Array.from(new Set(next));
+      const uid = storageUserIdRef.current;
+      if (uid) {
+        void saveUserData(uid, "watchlist", deduped);
+      }
       if (!exists) {
         void logUserActivity({
           type: "watchlist",
@@ -328,20 +336,15 @@ export default function BuscarPage() {
           ? detailMovie?.title ?? sheet.item.title ?? ""
           : detailTv?.name ?? sheet.item.name ?? "";
       const ratedAt = freshRatedAtIso();
-
-      try {
-        const raw = window.localStorage.getItem("valoraciones");
-        const prev = raw ? (JSON.parse(raw) as Record<string, unknown>) : {};
-        const next = {
-          ...prev,
-          [key]: { rating: stars, unseen: false, genreIds, title, ratedAt }
-        };
-        window.localStorage.setItem("valoraciones", JSON.stringify(next));
-      } catch {
-        window.localStorage.setItem(
-          "valoraciones",
-          JSON.stringify({ [key]: { rating: stars, unseen: false, genreIds, title, ratedAt } })
-        );
+      const uid = storageUserIdRef.current;
+      const prev =
+        (uid && readUserDataCacheJson<Record<string, unknown>>(uid, "valoraciones")) || {};
+      const next = {
+        ...prev,
+        [key]: { rating: stars, unseen: false, genreIds, title, ratedAt }
+      };
+      if (uid) {
+        void saveUserData(uid, "valoraciones", next);
       }
       setStarsPanelOpen(false);
       setSheet(null);

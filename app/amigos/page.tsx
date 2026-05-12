@@ -7,6 +7,7 @@ import { MotionButton } from "@/components/ui/MotionButton";
 import { SkeletonShimmer } from "@/components/ui/SkeletonShimmer";
 import { supabase } from "@/lib/supabase";
 import { syncProfileFromLocal } from "@/lib/social";
+import { readUserDataCacheJson, setActiveStorageUserId, syncAllUserData } from "@/lib/userStorage";
 
 const APP_URL = "https://whatnext-gray.vercel.app";
 const WHATSAPP_INVITE_TEXT =
@@ -75,13 +76,15 @@ export default function AmigosPage() {
   const [relationshipKeys, setRelationshipKeys] = useState<Set<string>>(new Set());
   const [reloadTick, setReloadTick] = useState(0);
 
-  const readCurrentLocalGustos = (): Record<string, string[]> => {
+  const readCurrentLocalGustos = (uid: string | null): Record<string, string[]> => {
+    if (!uid) {
+      return {};
+    }
     try {
-      const raw = window.localStorage.getItem("gustos");
-      if (!raw) {
+      const parsed = readUserDataCacheJson<Record<string, unknown>>(uid, "gustos");
+      if (!parsed) {
         return {};
       }
-      const parsed = JSON.parse(raw) as Record<string, unknown>;
       const out: Record<string, string[]> = {};
       Object.entries(parsed).forEach(([k, v]) => {
         if (k === "plataformas" || !Array.isArray(v)) {
@@ -95,7 +98,7 @@ export default function AmigosPage() {
     }
   };
 
-  const currentLocalGustos = useMemo(() => readCurrentLocalGustos(), []);
+  const currentLocalGustos = useMemo(() => readCurrentLocalGustos(userId), [userId]);
 
   const flattenGustos = (gustos: Record<string, string[]> | null | undefined): Set<string> => {
     const out = new Set<string>();
@@ -127,11 +130,13 @@ export default function AmigosPage() {
 
   useEffect(() => {
     let cancelled = false;
-    void supabase.auth.getUser().then(({ data: { user } }) => {
+    void supabase.auth.getUser().then(async ({ data: { user } }) => {
       if (!user || cancelled) {
         return;
       }
       setUserId(user.id);
+      setActiveStorageUserId(user.id);
+      await syncAllUserData(user.id);
       void syncProfileFromLocal(user);
     });
     return () => {

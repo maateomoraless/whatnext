@@ -4,6 +4,8 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { AnimatePresence, motion } from "framer-motion";
 import { MotionButton } from "@/components/ui/MotionButton";
+import { supabase } from "@/lib/supabase";
+import { loadUserData, saveUserData, setActiveStorageUserId, syncAllUserData } from "@/lib/userStorage";
 
 const DEFAULT_PELICULAS_MES = 8;
 
@@ -16,6 +18,7 @@ export default function OnboardingTiempoPage() {
   const [isExiting, setIsExiting] = useState(false);
   const [peliculasMes, setPeliculasMes] = useState(DEFAULT_PELICULAS_MES);
   const [displayedMinutes, setDisplayedMinutes] = useState(0);
+  const userIdRef = useRef<string | null>(null);
 
   const minutosPerdidosMes = useMemo(() => peliculasMes * 18, [peliculasMes]);
   const horasPerdidasAno = useMemo(
@@ -56,19 +59,39 @@ export default function OnboardingTiempoPage() {
   };
 
   useEffect(() => {
-    const storedName = window.localStorage.getItem("nombre");
-    const storedPeliculas = window.localStorage.getItem("peliculas_mes");
-
-    if (storedName) {
-      setName(storedName);
-    }
-
-    if (storedPeliculas) {
-      const parsed = Number.parseInt(storedPeliculas, 10);
-      if (!Number.isNaN(parsed) && parsed >= 1 && parsed <= 20) {
-        setPeliculasMes(parsed);
+    void (async () => {
+      const {
+        data: { user }
+      } = await supabase.auth.getUser();
+      if (user) {
+        userIdRef.current = user.id;
+        setActiveStorageUserId(user.id);
+        await syncAllUserData(user.id);
+        const storedName = await loadUserData(user.id, "nombre");
+        if (storedName) {
+          setName(storedName);
+        }
+        const storedPeliculas = await loadUserData(user.id, "peliculas_mes");
+        if (storedPeliculas) {
+          const parsed = Number.parseInt(storedPeliculas, 10);
+          if (!Number.isNaN(parsed) && parsed >= 1 && parsed <= 20) {
+            setPeliculasMes(parsed);
+          }
+        }
+      } else {
+        const storedName = await loadUserData(null, "nombre");
+        if (storedName) {
+          setName(storedName);
+        }
+        const storedPeliculas = await loadUserData(null, "peliculas_mes");
+        if (storedPeliculas) {
+          const parsed = Number.parseInt(storedPeliculas, 10);
+          if (!Number.isNaN(parsed) && parsed >= 1 && parsed <= 20) {
+            setPeliculasMes(parsed);
+          }
+        }
       }
-    }
+    })();
   }, []);
 
   useEffect(() => {
@@ -137,7 +160,7 @@ export default function OnboardingTiempoPage() {
                   onChange={(event) => {
                     const value = Number.parseInt(event.target.value, 10);
                     setPeliculasMes(value);
-                    window.localStorage.setItem("peliculas_mes", `${value}`);
+                    void saveUserData(userIdRef.current, "peliculas_mes", `${value}`);
                   }}
                   className="h-2 w-full cursor-pointer appearance-none rounded-full bg-white/20 accent-white"
                 />

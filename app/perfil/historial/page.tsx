@@ -11,6 +11,8 @@ import {
   sortHistoryByRecency,
   type HistoryRow
 } from "@/lib/historyValoraciones";
+import { supabase } from "@/lib/supabase";
+import { readUserDataCacheJson, setActiveStorageUserId, syncAllUserData } from "@/lib/userStorage";
 
 type RatingValue = {
   rating: number;
@@ -48,12 +50,22 @@ export default function PerfilHistorialPage() {
     async function loadHistory() {
       setHistoryLoading(true);
 
+      const {
+        data: { user }
+      } = await supabase.auth.getUser();
       let valoraciones: Record<string, RatingValue> = {};
-      try {
-        const raw = window.localStorage.getItem("valoraciones");
-        valoraciones = raw ? (JSON.parse(raw) as Record<string, RatingValue>) : {};
-      } catch {
-        valoraciones = {};
+      if (user) {
+        setActiveStorageUserId(user.id);
+        await syncAllUserData(user.id);
+        valoraciones = readUserDataCacheJson<Record<string, RatingValue>>(user.id, "valoraciones") ?? {};
+      } else {
+        try {
+          const raw =
+            typeof window !== "undefined" ? window.localStorage.getItem("valoraciones") : null;
+          valoraciones = raw ? (JSON.parse(raw) as Record<string, RatingValue>) : {};
+        } catch {
+          valoraciones = {};
+        }
       }
 
       const entries = Object.entries(valoraciones).filter(

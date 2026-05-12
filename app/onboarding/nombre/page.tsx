@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { AnimatePresence, motion } from "framer-motion";
 import { MotionButton } from "@/components/ui/MotionButton";
 import { supabase } from "@/lib/supabase";
+import { loadUserData, saveUserData, setActiveStorageUserId, syncAllUserData } from "@/lib/userStorage";
 
 function sanitizeUsernameInput(value: string): string {
   return value
@@ -21,18 +22,32 @@ export default function OnboardingNombrePage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   useEffect(() => {
-    try {
-      const stored = window.localStorage.getItem("nombre");
-      if (stored) {
-        setName(stored);
+    void (async () => {
+      const {
+        data: { user }
+      } = await supabase.auth.getUser();
+      if (user) {
+        setActiveStorageUserId(user.id);
+        await syncAllUserData(user.id);
+        const stored = await loadUserData(user.id, "nombre");
+        if (stored) {
+          setName(stored);
+        }
+        const storedUsername = await loadUserData(user.id, "username");
+        if (storedUsername) {
+          setUsername(sanitizeUsernameInput(storedUsername.replace(/^@/, "")));
+        }
+      } else {
+        const stored = await loadUserData(null, "nombre");
+        if (stored) {
+          setName(stored);
+        }
+        const storedUsername = await loadUserData(null, "username");
+        if (storedUsername) {
+          setUsername(sanitizeUsernameInput(storedUsername.replace(/^@/, "")));
+        }
       }
-      const storedUsername = window.localStorage.getItem("username");
-      if (storedUsername) {
-        setUsername(sanitizeUsernameInput(storedUsername.replace(/^@/, "")));
-      }
-    } catch {
-      /* ignore */
-    }
+    })();
   }, []);
   const [isExiting, setIsExiting] = useState(false);
   const waveEmoji = "\u{1F44B}";
@@ -88,13 +103,12 @@ export default function OnboardingNombrePage() {
       return;
     }
     setIsSubmitting(true);
-    window.localStorage.setItem("nombre", cleanName);
-    window.localStorage.setItem("username", `@${cleanUsername}`);
-
     const {
       data: { user }
     } = await supabase.auth.getUser();
     if (user) {
+      await saveUserData(user.id, "nombre", cleanName);
+      await saveUserData(user.id, "username", `@${cleanUsername}`);
       await supabase.from("profiles").upsert(
         {
           id: user.id,
@@ -103,7 +117,11 @@ export default function OnboardingNombrePage() {
         },
         { onConflict: "id" }
       );
+    } else {
+      await saveUserData(null, "nombre", cleanName);
+      await saveUserData(null, "username", `@${cleanUsername}`);
     }
+
     setIsExiting(true);
   };
 

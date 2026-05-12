@@ -2,7 +2,7 @@
 
 import Image from "next/image";
 import { useRouter } from "next/navigation";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   collectProviderNames,
   fetchJson,
@@ -10,6 +10,8 @@ import {
   type MediaType,
   type WatchProvidersResponse
 } from "@/components/TmdbDetailSheet";
+import { supabase } from "@/lib/supabase";
+import { readUserDataCacheJson, saveUserData, setActiveStorageUserId, syncAllUserData } from "@/lib/userStorage";
 
 type WatchlistRow = {
   watchlistId: string;
@@ -55,19 +57,24 @@ export default function PerfilWatchlistPage() {
   const [rows, setRows] = useState<WatchlistRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [watchlist, setWatchlist] = useState<string[]>([]);
+  const userIdRef = useRef<string | null>(null);
 
   useEffect(() => {
-    try {
-      const w = window.localStorage.getItem("watchlist");
-      if (w) {
-        const parsed = JSON.parse(w);
-        if (Array.isArray(parsed)) {
-          setWatchlist(parsed.filter((x): x is string => typeof x === "string"));
-        }
+    void (async () => {
+      const {
+        data: { user }
+      } = await supabase.auth.getUser();
+      if (!user) {
+        return;
       }
-    } catch {
-      /* ignore */
-    }
+      userIdRef.current = user.id;
+      setActiveStorageUserId(user.id);
+      await syncAllUserData(user.id);
+      const wl = readUserDataCacheJson<string[]>(user.id, "watchlist");
+      if (wl && Array.isArray(wl)) {
+        setWatchlist(wl.filter((x): x is string => typeof x === "string"));
+      }
+    })();
   }, []);
 
   useEffect(() => {
@@ -147,7 +154,10 @@ export default function PerfilWatchlistPage() {
     setWatchlist((prev) => {
       const next = prev.filter((id) => id !== wid);
       const deduped = Array.from(new Set(next));
-      window.localStorage.setItem("watchlist", JSON.stringify(deduped));
+      const uid = userIdRef.current;
+      if (uid) {
+        void saveUserData(uid, "watchlist", deduped);
+      }
       return deduped;
     });
   }, []);

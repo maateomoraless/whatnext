@@ -1,9 +1,16 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { AnimatePresence, motion } from "framer-motion";
 import { MotionButton } from "@/components/ui/MotionButton";
+import { supabase } from "@/lib/supabase";
+import {
+  readUserDataCacheJson,
+  saveUserData,
+  setActiveStorageUserId,
+  syncAllUserData
+} from "@/lib/userStorage";
 
 type QuestionSection = {
   id: string;
@@ -168,28 +175,48 @@ export default function OnboardingGustosPage() {
   const router = useRouter();
   const [isExiting, setIsExiting] = useState(false);
   const [selections, setSelections] = useState<GustosSelection>(() => createEmptySelections());
+  const userIdRef = useRef<string | null>(null);
 
   useEffect(() => {
-    const stored = window.localStorage.getItem("gustos");
-    if (!stored) {
-      return;
-    }
-
-    try {
-      const parsed = JSON.parse(stored) as Record<string, unknown>;
-      const next = createEmptySelections();
-
-      SECTIONS.forEach((section) => {
-        const value = parsed[section.id];
-        if (Array.isArray(value)) {
-          next[section.id] = value.filter((item): item is string => typeof item === "string");
+    void (async () => {
+      const {
+        data: { user }
+      } = await supabase.auth.getUser();
+      if (user) {
+        userIdRef.current = user.id;
+        setActiveStorageUserId(user.id);
+        await syncAllUserData(user.id);
+        const parsed = readUserDataCacheJson<Record<string, unknown>>(user.id, "gustos");
+        if (parsed) {
+          const next = createEmptySelections();
+          SECTIONS.forEach((section) => {
+            const value = parsed[section.id];
+            if (Array.isArray(value)) {
+              next[section.id] = value.filter((item): item is string => typeof item === "string");
+            }
+          });
+          setSelections(next);
         }
-      });
-
-      setSelections(next);
-    } catch {
-      // Ignore malformed storage and keep defaults.
-    }
+      } else {
+        const stored = typeof window !== "undefined" ? window.localStorage.getItem("gustos") : null;
+        if (!stored) {
+          return;
+        }
+        try {
+          const parsed = JSON.parse(stored) as Record<string, unknown>;
+          const next = createEmptySelections();
+          SECTIONS.forEach((section) => {
+            const value = parsed[section.id];
+            if (Array.isArray(value)) {
+              next[section.id] = value.filter((item): item is string => typeof item === "string");
+            }
+          });
+          setSelections(next);
+        } catch {
+          /* ignore */
+        }
+      }
+    })();
   }, []);
 
   const toggleOption = (sectionId: string, option: string, single = false) => {
@@ -206,7 +233,7 @@ export default function OnboardingGustosPage() {
       }
 
       const next = { ...prev, [sectionId]: nextValues };
-      window.localStorage.setItem("gustos", JSON.stringify(next));
+      void saveUserData(userIdRef.current, "gustos", next);
       return next;
     });
   };

@@ -8,6 +8,13 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { fetchJson, TMDB_API_KEY } from "@/components/TmdbDetailSheet";
 import type { MediaType } from "@/components/TmdbDetailSheet";
 import { supabase } from "@/lib/supabase";
+import {
+  readUserDataCache,
+  readUserDataCacheJson,
+  saveUserData,
+  setActiveStorageUserId,
+  syncAllUserData
+} from "@/lib/userStorage";
 import { parseRatedAtMs, sortHistoryByRecency, type HistoryRow } from "@/lib/historyValoraciones";
 import { BottomNav } from "@/components/BottomNav";
 
@@ -239,18 +246,8 @@ function createEmptyGustosModalDraft(): GustosSelection {
 }
 
 async function persistGustosToSupabase(userId: string, taste: GustosSelection): Promise<void> {
-  let plataformas: string[] = [];
-  try {
-    const raw = window.localStorage.getItem("plataformas");
-    if (raw) {
-      const parsed = JSON.parse(raw) as unknown;
-      if (Array.isArray(parsed)) {
-        plataformas = parsed.filter((x): x is string => typeof x === "string");
-      }
-    }
-  } catch {
-    plataformas = [];
-  }
+  const parsed = readUserDataCacheJson<string[]>(userId, "plataformas");
+  const plataformas = Array.isArray(parsed) ? parsed.filter((x): x is string => typeof x === "string") : [];
   await supabase.from("profiles").update({ gustos: { ...taste, plataformas } }).eq("id", userId);
 }
 
@@ -353,28 +350,31 @@ export default function PerfilPage() {
     });
   }, []);
 
-  const reloadStorage = useCallback(() => {
+  const reloadStorage = useCallback((overrideUserId?: string | null) => {
+    const id = overrideUserId ?? userId;
+    if (!id) {
+      return;
+    }
     try {
-      const n = window.localStorage.getItem("nombre");
-      setNombre(n ?? "");
-      setApellidosLocal(window.localStorage.getItem("apellidos") ?? "");
-      setEmailLocal(window.localStorage.getItem("email") ?? "");
-      const storedUser = window.localStorage.getItem("username");
+      const meta = readUserDataCacheJson<{ nombre?: string; apellidos?: string; email?: string }>(
+        id,
+        "perfil_meta"
+      );
+      setNombre(meta?.nombre ?? "");
+      setApellidosLocal(meta?.apellidos ?? "");
+      setEmailLocal(meta?.email ?? "");
+      const storedUser = readUserDataCache(id, "username");
       if (storedUser) {
         setProfileUsername(sanitizeUsernameInput(storedUser.replace(/^@/, "")));
       }
-      const p = window.localStorage.getItem("plataformas");
-      if (p) {
-        const parsed = JSON.parse(p);
-        if (Array.isArray(parsed)) {
-          setPlatformIds(parsed.filter((x): x is string => typeof x === "string"));
-        }
+      const parsedPlatforms = readUserDataCacheJson<string[]>(id, "plataformas");
+      if (parsedPlatforms && Array.isArray(parsedPlatforms)) {
+        setPlatformIds(parsedPlatforms.filter((x): x is string => typeof x === "string"));
       }
-      const g = window.localStorage.getItem("gustos");
-      if (g) {
-        const parsed = JSON.parse(g) as Record<string, unknown>;
+      const parsedGustos = readUserDataCacheJson<Record<string, unknown>>(id, "gustos");
+      if (parsedGustos) {
         const next: GustosSelection = {};
-        Object.entries(parsed).forEach(([k, v]) => {
+        Object.entries(parsedGustos).forEach(([k, v]) => {
           if (k === "plataformas" || !Array.isArray(v)) {
             return;
           }
@@ -382,29 +382,22 @@ export default function PerfilPage() {
         });
         setGustos(next);
       }
-      const v = window.localStorage.getItem("valoraciones");
-      if (v) {
-        try {
-          setValoraciones(JSON.parse(v) as Record<string, RatingValue>);
-        } catch {
-          setValoraciones({});
-        }
+      const vParsed = readUserDataCacheJson<Record<string, RatingValue>>(id, "valoraciones");
+      if (vParsed) {
+        setValoraciones(vParsed);
       } else {
         setValoraciones({});
       }
-      const w = window.localStorage.getItem("watchlist");
-      if (w) {
-        const parsed = JSON.parse(w);
-        if (Array.isArray(parsed)) {
-          setWatchlist(parsed.filter((x): x is string => typeof x === "string"));
-        }
+      const wParsed = readUserDataCacheJson<string[]>(id, "watchlist");
+      if (wParsed && Array.isArray(wParsed)) {
+        setWatchlist(wParsed.filter((x): x is string => typeof x === "string"));
       } else {
         setWatchlist([]);
       }
     } catch {
       /* ignore */
     }
-  }, []);
+  }, [userId]);
 
   useEffect(() => {
     let cancelled = false;
@@ -416,6 +409,8 @@ export default function PerfilPage() {
         return;
       }
       setUserId(user.id);
+      setActiveStorageUserId(user.id);
+      await syncAllUserData(user.id);
       const { data: row } = await supabase
         .from("profiles")
         .select("username, avatar_url")
@@ -430,11 +425,12 @@ export default function PerfilPage() {
       if (row?.avatar_url && typeof row.avatar_url === "string") {
         setAvatarUrl(row.avatar_url.trim());
       }
+      reloadStorage(user.id);
     })();
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [reloadStorage]);
 
   useEffect(() => {
     const u = usernameDraft.trim();
@@ -697,8 +693,8 @@ export default function PerfilPage() {
   const savePlatformsModal = async () => {
     const next = [...platformDraft];
     setPlatformIds(next);
-    window.localStorage.setItem("plataformas", JSON.stringify(next));
     if (userId) {
+      await saveUserData(userId, "plataformas", next);
       await persistGustosToSupabase(userId, gustos);
     }
     setPlatformsModalOpen(false);
@@ -730,8 +726,8 @@ export default function PerfilPage() {
       merged[section.id] = [...(gustosModalDraft[section.id] ?? [])];
     }
     setGustos(merged);
-    window.localStorage.setItem("gustos", JSON.stringify(merged));
     if (userId) {
+      await saveUserData(userId, "gustos", merged);
       await persistGustosToSupabase(userId, merged);
     }
     setGustosModalOpen(false);
@@ -752,11 +748,10 @@ export default function PerfilPage() {
       return;
     }
     setUsernameSaving(true);
-    window.localStorage.setItem("username", `@${clean}`);
-    setProfileUsername(clean);
     if (userId) {
-      await supabase.from("profiles").upsert({ id: userId, username: clean }, { onConflict: "id" });
+      await saveUserData(userId, "username", `@${clean}`);
     }
+    setProfileUsername(clean);
     setUsernameSaving(false);
     setUsernameEditing(false);
   };

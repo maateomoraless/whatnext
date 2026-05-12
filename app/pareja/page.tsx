@@ -4,6 +4,8 @@ import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
+import { supabase } from "@/lib/supabase";
+import { readUserDataCacheJson, setActiveStorageUserId, syncAllUserData } from "@/lib/userStorage";
 import { motion } from "framer-motion";
 import { MotionButton } from "@/components/ui/MotionButton";
 import { fetchJson, TMDB_API_KEY } from "@/components/TmdbDetailSheet";
@@ -221,13 +223,42 @@ export default function ParejaPage() {
   const [plataformas, setPlataformas] = useState<string[]>([]);
 
   useEffect(() => {
-    try {
-      const raw = window.localStorage.getItem("plataformas");
-      if (!raw) {
+    void (async () => {
+      const {
+        data: { user }
+      } = await supabase.auth.getUser();
+      if (!user) {
+        try {
+          const raw = typeof window !== "undefined" ? window.localStorage.getItem("plataformas") : null;
+          if (!raw) {
+            return;
+          }
+          const parsed = JSON.parse(raw) as unknown;
+          if (!Array.isArray(parsed)) {
+            return;
+          }
+          const platformLabelsById: Record<string, string> = {
+            netflix: "Netflix",
+            disney_plus: "Disney+",
+            max: "Max",
+            prime: "Prime",
+            apple_tv_plus: "Apple TV+",
+            filmin: "Filmin"
+          };
+          const labels = parsed
+            .filter((item): item is string => typeof item === "string")
+            .map((id) => platformLabelsById[id] ?? id)
+            .filter((label, index, arr) => arr.indexOf(label) === index);
+          setPlataformas(labels);
+        } catch {
+          /* ignore */
+        }
         return;
       }
-      const parsed = JSON.parse(raw) as unknown;
-      if (!Array.isArray(parsed)) {
+      setActiveStorageUserId(user.id);
+      await syncAllUserData(user.id);
+      const parsed = readUserDataCacheJson<string[]>(user.id, "plataformas");
+      if (!parsed || !Array.isArray(parsed)) {
         return;
       }
       const platformLabelsById: Record<string, string> = {
@@ -243,9 +274,7 @@ export default function ParejaPage() {
         .map((id) => platformLabelsById[id] ?? id)
         .filter((label, index, arr) => arr.indexOf(label) === index);
       setPlataformas(labels);
-    } catch {
-      // ignore
-    }
+    })();
   }, []);
 
   const toggle = useCallback((who: "a" | "b", label: string) => {

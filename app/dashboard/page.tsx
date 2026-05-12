@@ -15,6 +15,12 @@ import {
 import { logUserActivity, syncProfileFromLocal } from "@/lib/social";
 import { supabase } from "@/lib/supabase";
 import {
+  readUserDataCacheJson,
+  saveUserData,
+  setActiveStorageUserId,
+  syncAllUserData
+} from "@/lib/userStorage";
+import {
   TmdbDetailSheet,
   TMDB_API_KEY,
   collectProviderNames,
@@ -1231,6 +1237,7 @@ export default function DashboardPage() {
   const moodAbortRef = useRef<AbortController | null>(null);
   const lastRecDepsSigRef = useRef<string | null>(null);
   const [dashboardRecVisEpoch, setDashboardRecVisEpoch] = useState(0);
+  const storageUserIdRef = useRef<string | null>(null);
 
   const persistTmdbRating = (item: MatchItem, stars: number) => {
     const key = `tmdb-${item.tmdbId}`;
@@ -1246,7 +1253,10 @@ export default function DashboardPage() {
           ratedAt
         }
       };
-      window.localStorage.setItem("valoraciones", JSON.stringify(next));
+      const uid = storageUserIdRef.current;
+      if (uid) {
+        void saveUserData(uid, "valoraciones", next);
+      }
       return next;
     });
     const bump = bumpMovieStreak();
@@ -1276,7 +1286,10 @@ export default function DashboardPage() {
           genreIds: item.genreIds ?? []
         }
       };
-      window.localStorage.setItem("valoraciones", JSON.stringify(next));
+      const uid = storageUserIdRef.current;
+      if (uid) {
+        void saveUserData(uid, "valoraciones", next);
+      }
       return next;
     });
     const bump = bumpMovieStreak();
@@ -1314,7 +1327,10 @@ export default function DashboardPage() {
   useEffect(() => {
     let cancelled = false;
 
-    void supabase.auth.getUser().then(({ data: { user } }) => {
+    void (async () => {
+      const {
+        data: { user }
+      } = await supabase.auth.getUser();
       if (cancelled) {
         return;
       }
@@ -1322,29 +1338,125 @@ export default function DashboardPage() {
         router.replace("/");
         return;
       }
+      const uid = user.id;
+      storageUserIdRef.current = uid;
+      setActiveStorageUserId(uid);
+      await syncAllUserData(uid);
+      if (cancelled) {
+        return;
+      }
 
       const fromMeta =
         typeof user.user_metadata?.full_name === "string" ? user.user_metadata.full_name.trim() : "";
-      const display = fromMeta || user.email || "";
+      const metaNombre = readUserDataCacheJson<{ nombre?: string }>(uid, "perfil_meta")?.nombre?.trim();
+      const display = metaNombre || fromMeta || user.email || "";
       if (display) {
-        window.localStorage.setItem("nombre", display);
         setName(display);
       }
+
       void syncProfileFromLocal(user);
-    });
+
+      const platformIds = readUserDataCacheJson<string[]>(uid, "plataformas");
+      if (platformIds && Array.isArray(platformIds)) {
+        try {
+          const platformLabelsById: Record<string, string> = {
+            netflix: "Netflix",
+            disney_plus: "Disney+",
+            max: "Max",
+            prime: "Prime",
+            apple_tv_plus: "Apple TV+",
+            filmin: "Filmin"
+          };
+          const labels = platformIds
+            .filter((item): item is string => typeof item === "string")
+            .map((id) => platformLabelsById[id] ?? id)
+            .filter((label): label is string => Boolean(label))
+            .filter((label, index, arr) => arr.indexOf(label) === index);
+          setSelectedPlatforms(labels);
+        } catch {
+          /* ignore */
+        }
+      }
+
+      const storedGustos = readUserDataCacheJson<Record<string, unknown>>(uid, "gustos");
+      if (storedGustos) {
+        try {
+          const next: GustosSelection = {};
+          Object.entries(storedGustos).forEach(([key, value]) => {
+            if (Array.isArray(value)) {
+              next[key] = value.filter((v): v is string => typeof v === "string");
+            }
+          });
+          setGustos(next);
+        } catch {
+          /* ignore */
+        }
+      }
+
+      const storedRatings = readUserDataCacheJson<Record<string, unknown>>(uid, "valoraciones");
+      if (storedRatings) {
+        try {
+          const normalizedRatings: Ratings = {};
+          Object.entries(storedRatings).forEach(([movieId, value]) => {
+            if (!value || typeof value !== "object") {
+              return;
+            }
+            const candidate = value as {
+              rating?: unknown;
+              unseen?: unknown;
+              genreIds?: unknown;
+              title?: unknown;
+              ratedAt?: unknown;
+            };
+            const rating =
+              typeof candidate.rating === "number" && Number.isFinite(candidate.rating)
+                ? candidate.rating
+                : 0;
+            const genreIds = Array.isArray(candidate.genreIds)
+              ? candidate.genreIds.filter((g): g is number => typeof g === "number" && Number.isFinite(g))
+              : undefined;
+            const title =
+              typeof candidate.title === "string" && candidate.title.trim().length > 0
+                ? candidate.title.trim()
+                : undefined;
+            const ratedAt =
+              typeof candidate.ratedAt === "string" && candidate.ratedAt.trim().length > 0
+                ? candidate.ratedAt.trim()
+                : undefined;
+            normalizedRatings[movieId] = {
+              rating,
+              unseen: Boolean(candidate.unseen),
+              ...(genreIds && genreIds.length > 0 ? { genreIds } : {}),
+              ...(title ? { title } : {}),
+              ...(ratedAt ? { ratedAt } : {})
+            };
+          });
+          setRatings(normalizedRatings);
+        } catch {
+          /* ignore */
+        }
+      }
+
+      const storedWatchlist = readUserDataCacheJson<string[]>(uid, "watchlist");
+      if (storedWatchlist && Array.isArray(storedWatchlist)) {
+        try {
+          setWatchlist(storedWatchlist.filter((item): item is string => typeof item === "string"));
+        } catch {
+          /* ignore */
+        }
+      }
+
+      setStreakDays(readEffectiveMovieStreak());
+      const pending = claimPendingStreakMilestoneOnVisit();
+      if (pending) {
+        setStreakBanner(pending);
+      }
+    })();
 
     return () => {
       cancelled = true;
     };
   }, [router]);
-
-  useEffect(() => {
-    setStreakDays(readEffectiveMovieStreak());
-    const pending = claimPendingStreakMilestoneOnVisit();
-    if (pending) {
-      setStreakBanner(pending);
-    }
-  }, []);
 
   useEffect(() => {
     if (!streakBanner) {
@@ -1360,113 +1472,6 @@ export default function DashboardPage() {
     },
     []
   );
-
-  useEffect(() => {
-    const storedName = window.localStorage.getItem("nombre");
-    const storedPlatforms = window.localStorage.getItem("plataformas");
-    const storedGustos = window.localStorage.getItem("gustos");
-    const storedRatings = window.localStorage.getItem("valoraciones");
-    const storedWatchlist = window.localStorage.getItem("watchlist");
-
-    if (storedName) {
-      setName((prev) => (prev ? prev : storedName));
-    }
-
-    if (storedPlatforms) {
-      try {
-        const parsed = JSON.parse(storedPlatforms);
-        if (Array.isArray(parsed)) {
-          const platformLabelsById: Record<string, string> = {
-            netflix: "Netflix",
-            disney_plus: "Disney+",
-            max: "Max",
-            prime: "Prime",
-            apple_tv_plus: "Apple TV+",
-            filmin: "Filmin"
-          };
-          const labels = parsed
-            .filter((item): item is string => typeof item === "string")
-            .map((id) => platformLabelsById[id] ?? id)
-            .filter((label): label is string => Boolean(label))
-            .filter((label, index, arr) => arr.indexOf(label) === index);
-
-          setSelectedPlatforms(labels);
-        }
-      } catch {
-        // Ignore malformed localStorage data.
-      }
-    }
-
-    if (storedGustos) {
-      try {
-        const parsed = JSON.parse(storedGustos) as Record<string, unknown>;
-        const next: GustosSelection = {};
-        Object.entries(parsed).forEach(([key, value]) => {
-          if (Array.isArray(value)) {
-            next[key] = value.filter((v): v is string => typeof v === "string");
-          }
-        });
-        setGustos(next);
-      } catch {
-        // Ignore malformed localStorage data.
-      }
-    }
-
-    if (storedRatings) {
-      try {
-        const parsedRatings = JSON.parse(storedRatings) as Record<string, unknown>;
-        const normalizedRatings: Ratings = {};
-
-        Object.entries(parsedRatings).forEach(([movieId, value]) => {
-          if (!value || typeof value !== "object") {
-            return;
-          }
-
-          const candidate = value as {
-            rating?: unknown;
-            unseen?: unknown;
-            genreIds?: unknown;
-            title?: unknown;
-          };
-          const rating =
-            typeof candidate.rating === "number" && Number.isFinite(candidate.rating)
-              ? candidate.rating
-              : 0;
-
-          const genreIds = Array.isArray(candidate.genreIds)
-            ? candidate.genreIds.filter((g): g is number => typeof g === "number" && Number.isFinite(g))
-            : undefined;
-
-          const title =
-            typeof candidate.title === "string" && candidate.title.trim().length > 0
-              ? candidate.title.trim()
-              : undefined;
-
-          normalizedRatings[movieId] = {
-            rating,
-            unseen: Boolean(candidate.unseen),
-            ...(genreIds && genreIds.length > 0 ? { genreIds } : {}),
-            ...(title ? { title } : {})
-          };
-        });
-
-        setRatings(normalizedRatings);
-      } catch {
-        // Ignore malformed localStorage data.
-      }
-    }
-
-    if (storedWatchlist) {
-      try {
-        const parsedWatchlist = JSON.parse(storedWatchlist);
-        if (Array.isArray(parsedWatchlist)) {
-          setWatchlist(parsedWatchlist.filter((item): item is string => typeof item === "string"));
-        }
-      } catch {
-        // Ignore malformed localStorage data.
-      }
-    }
-  }, []);
 
   useEffect(() => {
     const depsSig = JSON.stringify({
@@ -1695,7 +1700,10 @@ export default function DashboardPage() {
       const exists = prev.includes(id);
       const next = exists ? prev.filter((item) => item !== id) : [...prev, id];
       const deduped = Array.from(new Set(next));
-      window.localStorage.setItem("watchlist", JSON.stringify(deduped));
+      const uid = storageUserIdRef.current;
+      if (uid) {
+        void saveUserData(uid, "watchlist", deduped);
+      }
       if (!exists && item) {
         void logUserActivity({
           type: "watchlist",
@@ -1800,7 +1808,10 @@ export default function DashboardPage() {
       const exists = prev.includes(id);
       const next = exists ? prev.filter((x) => x !== id) : [...prev, id];
       const deduped = Array.from(new Set(next));
-      window.localStorage.setItem("watchlist", JSON.stringify(deduped));
+      const uid = storageUserIdRef.current;
+      if (uid) {
+        void saveUserData(uid, "watchlist", deduped);
+      }
       if (!exists) {
         void logUserActivity({
           type: "watchlist",
@@ -1833,31 +1844,17 @@ export default function DashboardPage() {
           : detailTv?.name ?? sheet.item.name ?? "";
 
       const ratedAt = freshRatedAtIso();
-      try {
-        const raw = window.localStorage.getItem("valoraciones");
-        const prev = raw ? (JSON.parse(raw) as Record<string, unknown>) : {};
+      setRatings((prev) => {
         const next = {
           ...prev,
           [key]: { rating: stars, unseen: false, genreIds, title, ratedAt }
         };
-        window.localStorage.setItem("valoraciones", JSON.stringify(next));
-      } catch {
-        window.localStorage.setItem(
-          "valoraciones",
-          JSON.stringify({ [key]: { rating: stars, unseen: false, genreIds, title, ratedAt } })
-        );
-      }
-
-      setRatings((prev) => ({
-        ...prev,
-        [key]: {
-          rating: stars,
-          unseen: false,
-          genreIds,
-          title,
-          ratedAt
+        const uid = storageUserIdRef.current;
+        if (uid) {
+          void saveUserData(uid, "valoraciones", next);
         }
-      }));
+        return next;
+      });
 
       setStarsPanelOpen(false);
       setSheet(null);
@@ -2297,7 +2294,10 @@ export default function DashboardPage() {
                             }
                             const next = [...prev, wid];
                             const deduped = Array.from(new Set(next));
-                            window.localStorage.setItem("watchlist", JSON.stringify(deduped));
+                            const uid = storageUserIdRef.current;
+                            if (uid) {
+                              void saveUserData(uid, "watchlist", deduped);
+                            }
                             void logUserActivity({
                               type: "watchlist",
                               movieId: moodMovie.id,
