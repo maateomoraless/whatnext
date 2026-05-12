@@ -259,7 +259,7 @@ export default function AmigosPage() {
         const { data } = await supabase
           .from("profiles")
           .select("id,full_name,username,avatar_url,gustos")
-          .ilike("full_name", `%${q}%`)
+          .or(`full_name.ilike.%${q}%,username.ilike.%${q}%`)
           .neq("id", userId)
           .limit(8);
         setSearchResults((data ?? []) as ProfileRow[]);
