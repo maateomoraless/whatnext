@@ -14,6 +14,7 @@ import {
   watchlistId,
   type WatchProvidersResponse
 } from "@/components/TmdbDetailSheet";
+import { freshRatedAtIso } from "@/lib/historyValoraciones";
 import { bumpMovieStreak } from "@/lib/movieStreak";
 import { logUserActivity } from "@/lib/social";
 
@@ -212,18 +213,19 @@ export default function SerieDetallePage() {
   const persistRating = (stars: number) => {
     const key = ratingStorageKey("tv", tvId);
     const genreIds = detail?.genres?.map((g) => g.id).filter((n) => Number.isFinite(n)) ?? [];
+    const ratedAt = freshRatedAtIso();
     try {
       const raw = window.localStorage.getItem("valoraciones");
       const prev = raw ? (JSON.parse(raw) as Record<string, unknown>) : {};
       const next = {
         ...prev,
-        [key]: { rating: stars, unseen: false, genreIds, title }
+        [key]: { rating: stars, unseen: false, genreIds, title, ratedAt }
       };
       window.localStorage.setItem("valoraciones", JSON.stringify(next));
     } catch {
       window.localStorage.setItem(
         "valoraciones",
-        JSON.stringify({ [key]: { rating: stars, unseen: false, genreIds, title } })
+        JSON.stringify({ [key]: { rating: stars, unseen: false, genreIds, title, ratedAt } })
       );
     }
     setShowStars(false);

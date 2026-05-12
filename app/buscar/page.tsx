@@ -22,6 +22,7 @@ import {
   type WatchProvidersResponse
 } from "@/components/TmdbDetailSheet";
 import { bumpMovieStreak } from "@/lib/movieStreak";
+import { freshRatedAtIso } from "@/lib/historyValoraciones";
 import { logUserActivity, syncProfileFromLocal } from "@/lib/social";
 import { supabase } from "@/lib/supabase";
 
@@ -326,19 +327,20 @@ export default function BuscarPage() {
         sheet.media === "movie"
           ? detailMovie?.title ?? sheet.item.title ?? ""
           : detailTv?.name ?? sheet.item.name ?? "";
+      const ratedAt = freshRatedAtIso();
 
       try {
         const raw = window.localStorage.getItem("valoraciones");
         const prev = raw ? (JSON.parse(raw) as Record<string, unknown>) : {};
         const next = {
           ...prev,
-          [key]: { rating: stars, unseen: false, genreIds, title }
+          [key]: { rating: stars, unseen: false, genreIds, title, ratedAt }
         };
         window.localStorage.setItem("valoraciones", JSON.stringify(next));
       } catch {
         window.localStorage.setItem(
           "valoraciones",
-          JSON.stringify({ [key]: { rating: stars, unseen: false, genreIds, title } })
+          JSON.stringify({ [key]: { rating: stars, unseen: false, genreIds, title, ratedAt } })
         );
       }
       setStarsPanelOpen(false);

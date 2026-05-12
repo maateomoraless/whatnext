@@ -5,6 +5,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion, type Variants } from "framer-motion";
 import { BottomNav } from "@/components/BottomNav";
+import { freshRatedAtIso } from "@/lib/historyValoraciones";
 import {
   bumpMovieStreak,
   claimPendingStreakMilestoneOnVisit,
@@ -57,6 +58,8 @@ type RatingValue = {
   genreIds?: number[];
   /** Título mostrado en TMDB al valorar. */
   title?: string;
+  /** ISO 8601: última valoración con estrellas (historial / orden). */
+  ratedAt?: string;
 };
 
 type Ratings = Record<string, RatingValue>;
@@ -1231,6 +1234,7 @@ export default function DashboardPage() {
 
   const persistTmdbRating = (item: MatchItem, stars: number) => {
     const key = `tmdb-${item.tmdbId}`;
+    const ratedAt = freshRatedAtIso();
     setRatings((prev) => {
       const next: Ratings = {
         ...prev,
@@ -1238,7 +1242,8 @@ export default function DashboardPage() {
           rating: stars,
           unseen: false,
           title: item.title,
-          genreIds: item.genreIds ?? []
+          genreIds: item.genreIds ?? [],
+          ratedAt
         }
       };
       window.localStorage.setItem("valoraciones", JSON.stringify(next));
@@ -1827,18 +1832,19 @@ export default function DashboardPage() {
           ? detailMovie?.title ?? sheet.item.title ?? ""
           : detailTv?.name ?? sheet.item.name ?? "";
 
+      const ratedAt = freshRatedAtIso();
       try {
         const raw = window.localStorage.getItem("valoraciones");
         const prev = raw ? (JSON.parse(raw) as Record<string, unknown>) : {};
         const next = {
           ...prev,
-          [key]: { rating: stars, unseen: false, genreIds, title }
+          [key]: { rating: stars, unseen: false, genreIds, title, ratedAt }
         };
         window.localStorage.setItem("valoraciones", JSON.stringify(next));
       } catch {
         window.localStorage.setItem(
           "valoraciones",
-          JSON.stringify({ [key]: { rating: stars, unseen: false, genreIds, title } })
+          JSON.stringify({ [key]: { rating: stars, unseen: false, genreIds, title, ratedAt } })
         );
       }
 
@@ -1848,7 +1854,8 @@ export default function DashboardPage() {
           rating: stars,
           unseen: false,
           genreIds,
-          title
+          title,
+          ratedAt
         }
       }));
 
@@ -2230,99 +2237,96 @@ export default function DashboardPage() {
 
         <AnimatePresence>
           {moodOpen ? (
-            <>
-              <motion.button
-                key="mood-backdrop"
-                type="button"
-                aria-label="Cerrar"
-                className="fixed inset-0 z-30 bg-black/70"
-                onClick={closeMoodModal}
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                exit={{ opacity: 0, transition: { duration: 0.2 } }}
-              />
+            <motion.div
+              key="mood-modal-root"
+              className="fixed inset-0 z-50 flex items-center justify-center bg-black/70"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.22 }}
+              onClick={closeMoodModal}
+            >
               <motion.div
-                key="mood-panel"
                 role="dialog"
                 aria-modal="true"
                 aria-labelledby="mood-modal-title"
-                className="fixed bottom-0 left-1/2 z-40 max-h-[90vh] w-full max-w-[400px] -translate-x-1/2 overflow-y-auto rounded-t-2xl border border-[#2a2a2a] border-b-0 bg-[#111]"
-                initial={{ y: "105%" }}
-                animate={{ y: 0 }}
-                exit={{ y: "105%", transition: { duration: 0.34, ease: [0.32, 0.72, 0, 1] } }}
-                transition={{ type: "spring", stiffness: 300, damping: 32, mass: 0.88 }}
+                className="max-h-[90vh] w-full max-w-[360px] overflow-y-auto rounded-2xl border border-[#2a2a2a] bg-[#111] mx-4"
+                initial={{ opacity: 0, scale: 0.96, y: 10 }}
+                animate={{ opacity: 1, scale: 1, y: 0 }}
+                exit={{ opacity: 0, scale: 0.98, y: 8 }}
+                transition={{ type: "spring", stiffness: 380, damping: 32 }}
+                onClick={(e) => e.stopPropagation()}
               >
-              <div className="sticky top-0 z-10 mx-auto mt-2 h-1 w-10 rounded-full bg-[#3f3f46]" />
-              <div className="px-5 pb-8 pt-4">
-                <h2 id="mood-modal-title" className="text-center text-sm font-semibold text-neutral-400">
-                  {moodPick?.label ?? "Tu mood"}
-                </h2>
-                {moodLoading ? (
-                  <div className="mt-8 flex flex-col items-center gap-3 px-2">
-                    <SkeletonShimmer className="h-64 w-full max-w-[220px]" rounded="xl" />
-                    <SkeletonShimmer className="h-3 w-3/4 max-w-[200px]" rounded="md" />
-                    <p className="text-center text-sm text-neutral-500">Buscando tu peli perfecta…</p>
-                  </div>
-                ) : moodMovie ? (
-                  <>
-                    <div className="mx-auto mb-4 mt-4 max-w-[220px] overflow-hidden rounded-xl border border-[#2a2a2a] bg-[#1a1a1a]">
-                      {moodMovie.posterPath ? (
-                        <Image
-                          src={`https://image.tmdb.org/t/p/w500${moodMovie.posterPath}`}
-                          alt=""
-                          width={500}
-                          height={750}
-                          className="w-full object-cover"
-                        />
-                      ) : (
-                        <div className="flex aspect-[2/3] items-center justify-center text-sm text-neutral-600">
-                          Sin imagen
-                        </div>
-                      )}
+                <div className="px-5 pb-8 pt-6">
+                  <h2 id="mood-modal-title" className="text-center text-sm font-semibold text-neutral-400">
+                    {moodPick?.label ?? "Tu mood"}
+                  </h2>
+                  {moodLoading ? (
+                    <div className="mt-8 flex flex-col items-center gap-3 px-2">
+                      <SkeletonShimmer className="h-64 w-full max-w-[220px]" rounded="xl" />
+                      <SkeletonShimmer className="h-3 w-3/4 max-w-[200px]" rounded="md" />
+                      <p className="text-center text-sm text-neutral-500">Buscando tu peli perfecta…</p>
                     </div>
-                    <h3 className="text-center text-xl font-semibold text-white">{moodMovie.title}</h3>
-                    <p className="mt-3 text-sm leading-relaxed text-neutral-300">{moodMovie.overview}</p>
-                    <MotionButton
-                      type="button"
-                      disabled={watchlist.includes(watchlistId("movie", moodMovie.id))}
-                      onClick={() => {
-                        const wid = watchlistId("movie", moodMovie.id);
-                        setWatchlist((prev) => {
-                          if (prev.includes(wid)) {
-                            return prev;
-                          }
-                          const next = [...prev, wid];
-                          const deduped = Array.from(new Set(next));
-                          window.localStorage.setItem("watchlist", JSON.stringify(deduped));
-                          void logUserActivity({
-                            type: "watchlist",
-                            movieId: moodMovie.id,
-                            movieTitle: moodMovie.title,
-                            posterPath: moodMovie.posterPath
+                  ) : moodMovie ? (
+                    <>
+                      <div className="mx-auto mb-4 mt-4 max-w-[220px] overflow-hidden rounded-xl border border-[#2a2a2a] bg-[#1a1a1a]">
+                        {moodMovie.posterPath ? (
+                          <Image
+                            src={`https://image.tmdb.org/t/p/w500${moodMovie.posterPath}`}
+                            alt=""
+                            width={500}
+                            height={750}
+                            className="w-full object-cover"
+                          />
+                        ) : (
+                          <div className="flex aspect-[2/3] items-center justify-center text-sm text-neutral-600">
+                            Sin imagen
+                          </div>
+                        )}
+                      </div>
+                      <h3 className="text-center text-xl font-semibold text-white">{moodMovie.title}</h3>
+                      <p className="mt-3 text-sm leading-relaxed text-neutral-300">{moodMovie.overview}</p>
+                      <MotionButton
+                        type="button"
+                        disabled={watchlist.includes(watchlistId("movie", moodMovie.id))}
+                        onClick={() => {
+                          const wid = watchlistId("movie", moodMovie.id);
+                          setWatchlist((prev) => {
+                            if (prev.includes(wid)) {
+                              return prev;
+                            }
+                            const next = [...prev, wid];
+                            const deduped = Array.from(new Set(next));
+                            window.localStorage.setItem("watchlist", JSON.stringify(deduped));
+                            void logUserActivity({
+                              type: "watchlist",
+                              movieId: moodMovie.id,
+                              movieTitle: moodMovie.title,
+                              posterPath: moodMovie.posterPath
+                            });
+                            return deduped;
                           });
-                          return deduped;
-                        });
-                      }}
-                      className="mt-6 w-full rounded-xl bg-white py-3 text-sm font-semibold text-black transition hover:bg-neutral-100 disabled:cursor-not-allowed disabled:opacity-50"
-                    >
-                      {watchlist.includes(watchlistId("movie", moodMovie.id))
-                        ? "Ya está en tu watchlist"
-                        : "Añadir a watchlist"}
-                    </MotionButton>
-                  </>
-                ) : (
-                  <p className="mt-8 text-center text-sm text-neutral-500">No hay resultado ahora mismo.</p>
-                )}
-                <MotionButton
-                  type="button"
-                  onClick={closeMoodModal}
-                  className="mt-4 w-full rounded-xl border border-[#333] bg-[#1a1a1a] py-3 text-sm font-medium text-neutral-200 transition hover:border-neutral-500"
-                >
-                  Cerrar
-                </MotionButton>
-              </div>
+                        }}
+                        className="mt-6 w-full rounded-xl bg-white py-3 text-sm font-semibold text-black transition hover:bg-neutral-100 disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        {watchlist.includes(watchlistId("movie", moodMovie.id))
+                          ? "Ya está en tu watchlist"
+                          : "Añadir a watchlist"}
+                      </MotionButton>
+                    </>
+                  ) : (
+                    <p className="mt-8 text-center text-sm text-neutral-500">No hay resultado ahora mismo.</p>
+                  )}
+                  <MotionButton
+                    type="button"
+                    onClick={closeMoodModal}
+                    className="mt-4 w-full rounded-xl border border-[#333] bg-[#1a1a1a] py-3 text-sm font-medium text-neutral-200 transition hover:border-neutral-500"
+                  >
+                    Cerrar
+                  </MotionButton>
+                </div>
               </motion.div>
-            </>
+            </motion.div>
           ) : null}
         </AnimatePresence>
 

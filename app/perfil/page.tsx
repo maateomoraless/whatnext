@@ -8,17 +8,10 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { fetchJson, TMDB_API_KEY } from "@/components/TmdbDetailSheet";
 import type { MediaType } from "@/components/TmdbDetailSheet";
 import { supabase } from "@/lib/supabase";
+import { parseRatedAtMs, sortHistoryByRecency, type HistoryRow } from "@/lib/historyValoraciones";
 import { BottomNav } from "@/components/BottomNav";
 
 type GustosSelection = Record<string, string[]>;
-
-type RatingRow = {
-  key: string;
-  title: string;
-  posterPath: string | null;
-  stars: number;
-  media: MediaType;
-};
 
 type WatchlistRow = {
   watchlistId: string;
@@ -162,6 +155,7 @@ type RatingValue = {
   unseen?: boolean;
   genreIds?: number[];
   title?: string;
+  ratedAt?: string;
 };
 
 function sanitizeUsernameInput(value: string): string {
@@ -320,7 +314,7 @@ export default function PerfilPage() {
   const [gustos, setGustos] = useState<GustosSelection>({});
   const [valoraciones, setValoraciones] = useState<Record<string, RatingValue>>({});
   const [watchlist, setWatchlist] = useState<string[]>([]);
-  const [historyRows, setHistoryRows] = useState<RatingRow[]>([]);
+  const [historyRows, setHistoryRows] = useState<HistoryRow[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [watchlistRows, setWatchlistRows] = useState<WatchlistRow[]>([]);
   const [watchlistLoading, setWatchlistLoading] = useState(false);
@@ -591,7 +585,7 @@ export default function PerfilPage() {
       const key = TMDB_API_KEY;
 
       const rows = await Promise.all(
-        entries.map(async ([storageKey, v]): Promise<RatingRow | null> => {
+        entries.map(async ([storageKey, v]): Promise<HistoryRow | null> => {
           let media: MediaType = "movie";
           let id: number | null = null;
           if (storageKey.startsWith("tmdb-")) {
@@ -628,12 +622,15 @@ export default function PerfilPage() {
             title,
             posterPath: data?.poster_path ?? null,
             stars: Math.round(v.rating),
-            media
+            media,
+            tmdbId: id,
+            ratedAtMs: parseRatedAtMs(v.ratedAt)
           };
         })
       );
       if (!ac.signal.aborted) {
-        setHistoryRows(rows.filter((x): x is RatingRow => x != null));
+        const valid = rows.filter((x): x is HistoryRow => x != null);
+        setHistoryRows(sortHistoryByRecency(valid).slice(0, 4));
         setHistoryLoading(false);
       }
     }
@@ -1058,11 +1055,15 @@ export default function PerfilPage() {
           ) : (
             <>
               <ul className="space-y-2">
-                {historyRows.slice(0, 4).map((row) => (
-                <li
-                  key={row.key}
-                  className="flex items-center gap-3 rounded-xl border border-[#2a2a2a] bg-[#101010] px-3 py-2.5"
-                >
+                {historyRows.map((row) => (
+                <li key={row.key}>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      router.push(row.media === "movie" ? `/pelicula/${row.tmdbId}` : `/serie/${row.tmdbId}`)
+                    }
+                    className="flex w-full items-center gap-3 rounded-xl border border-[#2a2a2a] bg-[#101010] px-3 py-2.5 text-left transition hover:border-neutral-500 hover:bg-[#161616]"
+                  >
                   <div className="h-14 w-10 flex-shrink-0 overflow-hidden rounded-md border border-[#2a2a2a] bg-[#1a1a1a]">
                     {row.posterPath ? (
                       <Image
@@ -1080,6 +1081,8 @@ export default function PerfilPage() {
                     <p className="truncate text-sm font-medium text-white">{row.title}</p>
                     <p className="text-xs text-[#fbbf24]">{starsDisplay(row.stars)}</p>
                   </div>
+                  <p className="flex-shrink-0 text-[10px] uppercase tracking-wide text-neutral-500">{row.media}</p>
+                </button>
                 </li>
                 ))}
               </ul>

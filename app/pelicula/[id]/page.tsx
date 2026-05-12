@@ -2,8 +2,8 @@
 
 import Image from "next/image";
 import { useParams, useRouter } from "next/navigation";
-import { useEffect, useMemo, useState } from "react";
-import { motion, type Variants } from "framer-motion";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { AnimatePresence, motion, type Variants } from "framer-motion";
 import { MotionButton } from "@/components/ui/MotionButton";
 import { SkeletonShimmer } from "@/components/ui/SkeletonShimmer";
 import {
@@ -15,6 +15,7 @@ import {
   type MovieDetail,
   type WatchProvidersResponse
 } from "@/components/TmdbDetailSheet";
+import { freshRatedAtIso } from "@/lib/historyValoraciones";
 import { bumpMovieStreak } from "@/lib/movieStreak";
 import { logUserActivity } from "@/lib/social";
 
@@ -113,6 +114,7 @@ export default function PeliculaDetallePage() {
 
   const [watchlist, setWatchlist] = useState<string[]>([]);
   const [showStars, setShowStars] = useState(false);
+  const [copyToast, setCopyToast] = useState(false);
 
   useEffect(() => {
     try {
@@ -128,6 +130,14 @@ export default function PeliculaDetallePage() {
       // ignore bad local storage
     }
   }, []);
+
+  useEffect(() => {
+    if (!copyToast) {
+      return undefined;
+    }
+    const t = window.setTimeout(() => setCopyToast(false), 3000);
+    return () => window.clearTimeout(t);
+  }, [copyToast]);
 
   useEffect(() => {
     if (!Number.isFinite(movieId)) {
@@ -221,16 +231,20 @@ export default function PeliculaDetallePage() {
   const persistRating = (stars: number) => {
     const key = ratingStorageKey("movie", movieId);
     const genreIds = detail?.genres?.map((g) => g.id).filter((n) => Number.isFinite(n)) ?? [];
+    const ratedAt = freshRatedAtIso();
     try {
       const raw = window.localStorage.getItem("valoraciones");
       const prev = raw ? (JSON.parse(raw) as Record<string, unknown>) : {};
       const next = {
         ...prev,
-        [key]: { rating: stars, unseen: false, genreIds, title }
+        [key]: { rating: stars, unseen: false, genreIds, title, ratedAt }
       };
       window.localStorage.setItem("valoraciones", JSON.stringify(next));
     } catch {
-      window.localStorage.setItem("valoraciones", JSON.stringify({ [key]: { rating: stars, unseen: false, genreIds, title } }));
+      window.localStorage.setItem(
+        "valoraciones",
+        JSON.stringify({ [key]: { rating: stars, unseen: false, genreIds, title, ratedAt } })
+      );
     }
     setShowStars(false);
     void bumpMovieStreak();
@@ -273,12 +287,54 @@ export default function PeliculaDetallePage() {
     return providers.join(" · ");
   }, [providers]);
 
+  const handleRecommend = useCallback(async () => {
+    const platform = providers[0] ?? "streaming";
+    const text = `Te recomiendo ${title} — disponible en ${platform} 🎬 Descúbrela en WhatNext? whatnext-gray.vercel.app`;
+    const url = `https://whatnext-gray.vercel.app/pelicula/${movieId}`;
+    try {
+      if (typeof navigator !== "undefined" && typeof navigator.share === "function") {
+        await navigator.share({ title: "WhatNext?", text, url });
+        return;
+      }
+    } catch (err) {
+      if (err instanceof DOMException && err.name === "AbortError") {
+        return;
+      }
+    }
+    const clip = `${text}\n${url}`;
+    try {
+      await navigator.clipboard.writeText(clip);
+    } catch {
+      try {
+        await navigator.clipboard.writeText(text);
+      } catch {
+        // ignore
+      }
+    }
+    setCopyToast(true);
+  }, [title, providers, movieId]);
+
   if (!Number.isFinite(movieId)) {
     return <main className="flex min-h-screen items-center justify-center bg-[#0a0a0a] text-neutral-400">ID inválido.</main>;
   }
 
   return (
-    <main className="flex min-h-screen justify-center bg-[#0a0a0a] px-6 pb-10 text-white">
+    <main className="relative flex min-h-screen justify-center bg-[#0a0a0a] px-6 pb-10 text-white">
+      <AnimatePresence>
+        {copyToast ? (
+          <motion.div
+            key="share-copy-toast"
+            role="status"
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 4 }}
+            transition={{ duration: 0.28, ease: "easeOut" }}
+            className="fixed bottom-24 left-1/2 z-50 -translate-x-1/2 rounded-full border border-[#333] bg-[#1a1a1a] px-4 py-2 text-sm text-white shadow-lg"
+          >
+            ¡Enlace copiado!
+          </motion.div>
+        ) : null}
+      </AnimatePresence>
       <section className="w-full max-w-[400px] pt-8">
         <button
           type="button"
@@ -417,6 +473,13 @@ export default function PeliculaDetallePage() {
                 className="w-full rounded-xl border border-[#2a2a2a] bg-[#101010] py-3 text-sm font-medium text-white transition hover:border-neutral-500"
               >
                 Ya la vi
+              </MotionButton>
+              <MotionButton
+                type="button"
+                onClick={() => void handleRecommend()}
+                className="w-full rounded-xl border border-[#333] bg-[#1a1a1a] py-3 text-sm font-medium text-neutral-200 transition hover:border-neutral-500"
+              >
+                Recomendar
               </MotionButton>
               {showStars ? (
                 <div className="rounded-xl border border-[#2a2a2a] bg-[#101010] p-3">

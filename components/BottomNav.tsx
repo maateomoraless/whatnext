@@ -66,10 +66,10 @@ export function BottomNav() {
           {TABS.map(({ href, label, Icon }) => {
             const active = pathname === href;
             return (
-              <li key={href} className="flex justify-center">
+              <li key={href} className="flex flex-col items-center justify-center">
                 <Link
                   href={href}
-                  className={`relative flex flex-col items-center gap-1 pb-1.5 text-[11px] font-medium transition-colors ${
+                  className={`flex flex-col items-center gap-1 text-[11px] font-medium transition-colors ${
                     active ? "text-white" : "text-neutral-500 hover:text-neutral-300"
                   }`}
                 >
@@ -97,10 +97,15 @@ export function BottomNav() {
                   {active ? (
                     <motion.span
                       layoutId="bottom-nav-indicator"
-                      className="absolute bottom-0 left-1/2 h-0.5 w-7 -translate-x-1/2 rounded-full bg-white shadow-[0_0_12px_rgba(255,255,255,0.35)]"
+                      className="mx-auto mt-0.5 h-0.5 w-7 shrink-0 rounded-full bg-white shadow-[0_0_12px_rgba(255,255,255,0.35)]"
                       transition={{ type: "spring", stiffness: 380, damping: 28 }}
                     />
-                  ) : null}
+                  ) : (
+                    <span
+                      className="mx-auto mt-0.5 h-0.5 w-7 shrink-0 opacity-0"
+                      aria-hidden
+                    />
+                  )}
                 </Link>
               </li>
             );

@@ -5,6 +5,7 @@ import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { AnimatePresence, motion } from "framer-motion";
 import { MotionButton } from "@/components/ui/MotionButton";
+import { freshRatedAtIso } from "@/lib/historyValoraciones";
 
 type Movie = {
   id: string;
@@ -17,6 +18,8 @@ type Movie = {
 type RatingValue = {
   rating: number;
   unseen: boolean;
+  title?: string;
+  ratedAt?: string;
 };
 
 type Ratings = Record<string, RatingValue>;
@@ -179,11 +182,14 @@ export default function OnboardingValoracionesPage() {
   };
 
   const setMovieRating = (movieId: string, rating: number) => {
+    const movie = MOVIES.find((m) => m.id === movieId);
     const next = {
       ...ratings,
       [movieId]: {
         rating,
-        unseen: false
+        unseen: false,
+        title: movie?.title,
+        ratedAt: freshRatedAtIso()
       }
     };
     saveRatings(next);
