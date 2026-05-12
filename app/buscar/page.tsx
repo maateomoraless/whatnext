@@ -248,6 +248,10 @@ export default function BuscarPage() {
         router.push(`/pelicula/${item.id}`);
         return;
       }
+      if (media === "tv") {
+        router.push(`/serie/${item.id}`);
+        return;
+      }
       openSheet(item, media);
     },
     [openSheet, router]
