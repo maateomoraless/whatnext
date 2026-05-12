@@ -1,13 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
-  <rect width="512" height="512" fill="#0a0a0a" />
-  <text
-    x="256"
-    y="256"
-    dominant-baseline="central"
-    text-anchor="middle"
-    font-family="Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif"
-    font-weight="700"
-    font-size="340"
-    fill="#ffffff"
-  >?</text>
+  <rect width="512" height="512" rx="80" ry="80" fill="#0a0a0a" />
+  <g fill="#ffffff" transform="translate(21.054,351.676) scale(1,-1)">
+    <path d="M200.732 0.0 252.18800000000002 191.352H210.91600000000003L179.56 59.496H179.024L146.328 191.352H106.932L73.7 61.104000000000006H73.164L42.88 191.352H0.804L51.456 0.0H94.06800000000001L125.96000000000001 130.24800000000002H126.49600000000001L158.924 0.0Z" />
+    <path d="M271.48400000000004 191.352V0.0H310.88V128.104H311.41600000000005L391.01200000000006 0.0H433.088V191.352H393.692V62.980000000000004H393.15600000000006L313.29200000000003 191.352Z" />
+  </g>
+  <circle cx="494.0" cy="351.676" r="18" fill="#FF9500" />
 </svg>

@@ -7,9 +7,9 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "icons": "node scripts/generate-icons.js",
-    "postinstall": "node scripts/generate-icons.js",
-    "prebuild": "node scripts/generate-icons.js"
+    "icons": "node scripts/build-wn-icon-svg.js && node scripts/generate-icons.js",
+    "postinstall": "node scripts/build-wn-icon-svg.js; node scripts/generate-icons.js",
+    "prebuild": "node scripts/build-wn-icon-svg.js && node scripts/generate-icons.js"
   },
   "dependencies": {
     "@supabase/auth-helpers-nextjs": "^0.10.0",
