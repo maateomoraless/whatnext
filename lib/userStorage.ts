@@ -73,7 +73,7 @@ function isServerJsonColumnEmpty(value: unknown): boolean {
   return false;
 }
 
- siempre array de ids string en Supabase (p. ej. ["netflix","prime"]). */
+// plataformas: siempre array de ids string en Supabase (p. ej. ["netflix","prime"]).
 export function normalizePlataformasForDb(data: unknown): string[] | null {
   if (data === null || data === undefined) {
     return null;
