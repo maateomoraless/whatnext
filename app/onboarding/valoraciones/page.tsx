@@ -216,7 +216,7 @@ export default function OnboardingValoracionesPage() {
       <AnimatePresence
         mode="wait"
         onExitComplete={() => {
-          router.push("/onboarding/resultados");
+          router.push("/onboarding/final");
         }}
       >
         {!isExiting && (

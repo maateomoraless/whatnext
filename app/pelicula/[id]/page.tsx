@@ -77,6 +77,13 @@ function parseAwardsBadge(awardsRaw?: string): string | null {
   return null;
 }
 
+function hasRelevantAwards(awardsRaw?: string): boolean {
+  if (!awardsRaw || awardsRaw.trim() === "" || awardsRaw === "N/A") {
+    return false;
+  }
+  return /Oscar|BAFTA|Golden Globe|Globos de Oro|win|nomination/i.test(awardsRaw);
+}
+
 export default function PeliculaDetallePage() {
   const router = useRouter();
   const params = useParams<{ id: string }>();
@@ -86,7 +93,7 @@ export default function PeliculaDetallePage() {
   const [providers, setProviders] = useState<string[]>([]);
   const [cast, setCast] = useState<CastMember[]>([]);
   const [trailerUrl, setTrailerUrl] = useState<string | null>(null);
-  const [awardsBadge, setAwardsBadge] = useState<string | null>(null);
+  const [awardsText, setAwardsText] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
   const [watchlist, setWatchlist] = useState<string[]>([]);
@@ -151,10 +158,11 @@ export default function PeliculaDetallePage() {
           ac.signal
         );
         if (!cancelled) {
-          setAwardsBadge(parseAwardsBadge(omdb?.Awards));
+          const rawAwards = omdb?.Awards;
+          setAwardsText(hasRelevantAwards(rawAwards) ? rawAwards ?? null : null);
         }
       } else {
-        setAwardsBadge(null);
+        setAwardsText(null);
       }
       if (!cancelled) {
         setLoading(false);
@@ -283,11 +291,6 @@ export default function PeliculaDetallePage() {
                   ) : (
                     <div className="flex h-[180px] items-center justify-center text-xs text-neutral-600">Sin póster</div>
                   )}
-                  {awardsBadge ? (
-                    <div className="absolute bottom-0 left-0 right-0 bg-black/70 px-2 py-1 text-[10px] text-white">
-                      🏆 {awardsBadge}
-                    </div>
-                  ) : null}
                 </div>
                 <div className="min-w-0 flex-1">
                   <h1 className="text-xl font-semibold leading-tight text-white">{title}</h1>
@@ -312,6 +315,13 @@ export default function PeliculaDetallePage() {
               <h2 className="text-sm font-semibold text-white">Dónde verla en España</h2>
               <p className="mt-2 text-sm text-neutral-300">{providerText}</p>
             </section>
+
+            {awardsText ? (
+              <section className="mt-4 rounded-xl border border-[#2a2a2a] bg-[#101010] p-4">
+                <h2 className="text-sm font-semibold text-white">Premios y nominaciones</h2>
+                <p className="mt-2 text-sm leading-relaxed text-neutral-300">🏆 {awardsText}</p>
+              </section>
+            ) : null}
 
             <section className="mt-4 rounded-xl border border-[#2a2a2a] bg-[#101010] p-4">
               <h2 className="text-sm font-semibold text-white">Reparto principal</h2>
