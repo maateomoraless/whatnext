@@ -53,8 +53,90 @@ type ProfileRow = {
 let profileRowCache: { userId: string; row: ProfileRow | null; at: number } | null = null;
 const PROFILE_ROW_TTL_MS = 2500;
 
+/** Logs temporales para depurar sync / escrituras (quitar cuando estabilice). */
+const LOG_PREFIX = "[userStorage]";
+
 function invalidateProfileRowCache(): void {
   profileRowCache = null;
+}
+
+function isServerJsonColumnEmpty(value: unknown): boolean {
+  if (value === null || value === undefined) {
+    return true;
+  }
+  if (Array.isArray(value)) {
+    return value.length === 0;
+  }
+  if (typeof value === "object") {
+    return Object.keys(value as object).length === 0;
+  }
+  return false;
+}
+
+ siempre array de ids string en Supabase (p. ej. ["netflix","prime"]). */
+export function normalizePlataformasForDb(data: unknown): string[] | null {
+  if (data === null || data === undefined) {
+    return null;
+  }
+  let raw: unknown = data;
+  if (typeof data === "string") {
+    raw = parseJsonSafe<unknown>(data);
+  }
+  if (!Array.isArray(raw)) {
+    return null;
+  }
+  const ids = raw.filter((x): x is string => typeof x === "string" && x.trim().length > 0);
+  return ids.length > 0 ? ids : null;
+}
+
+function normalizeValoracionesForDb(data: unknown): Record<string, unknown> | null {
+  if (data === null || data === undefined) {
+    return null;
+  }
+  let raw: unknown = data;
+  if (typeof data === "string") {
+    raw = parseJsonSafe<unknown>(data);
+  }
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+    return null;
+  }
+  const o = raw as Record<string, unknown>;
+  return Object.keys(o).length > 0 ? o : null;
+}
+
+function normalizeWatchlistForDb(data: unknown): string[] | null {
+  if (data === null || data === undefined) {
+    return null;
+  }
+  let raw: unknown = data;
+  if (typeof data === "string") {
+    raw = parseJsonSafe<unknown>(data);
+  }
+  if (!Array.isArray(raw)) {
+    return null;
+  }
+  const ids = raw.filter((x): x is string => typeof x === "string" && x.trim().length > 0);
+  return ids.length > 0 ? ids : null;
+}
+
+function readLocalJsonColumn(userId: string, column: string): unknown {
+  if (typeof window === "undefined") {
+    return null;
+  }
+  const namespaced = window.localStorage.getItem(cacheKey(userId, column));
+  if (namespaced) {
+    const p = parseJsonSafe<unknown>(namespaced);
+    console.log(LOG_PREFIX, "readLocalJsonColumn namespaced", column, "rawLen", namespaced.length, "parsed", p);
+    return p ?? namespaced;
+  }
+  const legacy = window.localStorage.getItem(column);
+  if (legacy) {
+    const p = parseJsonSafe<unknown>(legacy);
+    console.log(LOG_PREFIX, "readLocalJsonColumn legacy", column, "parsed", p);
+    return p ?? legacy;
+  }
+  console.log(LOG_PREFIX, "readLocalJsonColumn empty", column);
+  return null;
 }
 
 function toCacheString(data: unknown): string {
@@ -88,6 +170,64 @@ export function readUserDataCache(userId: string | null, key: string): string | 
 
 export function readUserDataCacheJson<T>(userId: string | null, key: string): T | null {
   return parseJsonSafe<T>(readUserDataCache(userId, key));
+}
+
+function normalizeGustosForDb(data: unknown): Record<string, unknown> | null {
+  return normalizeValoracionesForDb(data);
+}
+
+function normalizeColumnForDbUpload(column: string, raw: unknown): unknown {
+  switch (column) {
+    case "plataformas":
+      return normalizePlataformasForDb(raw);
+    case "valoraciones":
+      return normalizeValoracionesForDb(raw);
+    case "watchlist":
+      return normalizeWatchlistForDb(raw);
+    case "gustos":
+      return normalizeGustosForDb(raw);
+    case "racha":
+      if (raw && typeof raw === "object" && !Array.isArray(raw)) {
+        return Object.keys(raw as object).length > 0 ? raw : null;
+      }
+      return null;
+    case "perfil_meta":
+      if (raw && typeof raw === "object" && !Array.isArray(raw)) {
+        return Object.keys(raw as object).length > 0 ? raw : null;
+      }
+      return null;
+    default:
+      return null;
+  }
+}
+
+/**
+ * Tras sync, fuerza escritura a Supabase de plataformas / valoraciones / watchlist
+ * si la caché con prefijo de usuario tiene datos (p. ej. tras migrate desde legacy).
+ */
+export async function pushPlataformasValoracionesWatchlistFromCache(userId: string): Promise<void> {
+  if (typeof window === "undefined") {
+    return;
+  }
+  const pl = normalizePlataformasForDb(readUserDataCacheJson<unknown>(userId, "plataformas"));
+  const val = normalizeValoracionesForDb(readUserDataCacheJson<unknown>(userId, "valoraciones"));
+  const wl = normalizeWatchlistForDb(readUserDataCacheJson<unknown>(userId, "watchlist"));
+
+  console.log(LOG_PREFIX, "pushFromCache", userId, {
+    plataformas: pl,
+    valoracionesKeys: val ? Object.keys(val).length : 0,
+    watchlistLen: wl?.length ?? 0
+  });
+
+  if (pl) {
+    await saveUserData(userId, "plataformas", pl);
+  }
+  if (val) {
+    await saveUserData(userId, "valoraciones", val);
+  }
+  if (wl) {
+    await saveUserData(userId, "watchlist", wl);
+  }
 }
 
 function parseLegacyStreakToRacha(): RachaPayload | null {
@@ -221,6 +361,8 @@ async function fetchProfileRowCached(userId: string): Promise<ProfileRow | null>
     .eq("id", userId)
     .maybeSingle();
 
+  console.log(LOG_PREFIX, "fetchProfileRowCached", { userId, error: error?.message, hasData: Boolean(data) });
+
   if (error) {
     profileRowCache = { userId, row: null, at: now };
     return null;
@@ -232,15 +374,64 @@ async function fetchProfileRowCached(userId: string): Promise<ProfileRow | null>
 }
 
 /**
- * Descarga todos los datos persistidos del perfil y los escribe en localStorage como caché.
- * Sin sesión en servidor: rellena caché desde claves legacy si existen.
+ * Descarga perfil → caché local; migra legacy; si Supabase tiene columnas JSON vacías,
+ * sube datos desde localStorage (namespaced o legacy).
  */
 export async function syncAllUserData(userId: string): Promise<void> {
+  console.log(LOG_PREFIX, "syncAllUserData start", userId);
   const row = await fetchProfileRowCached(userId);
   if (row) {
+    console.log(LOG_PREFIX, "server row snapshot", {
+      plataformas: row.plataformas,
+      valoracionesType: typeof row.valoraciones,
+      valoracionesKeys:
+        row.valoraciones && typeof row.valoraciones === "object" && !Array.isArray(row.valoraciones)
+          ? Object.keys(row.valoraciones as object).length
+          : row.valoraciones,
+      watchlist: row.watchlist
+    });
     applyProfileRowToCache(userId, row);
+  } else {
+    console.warn(LOG_PREFIX, "no profile row (offline o sin fila)");
   }
+
   migrateLegacyLocalStorageToUser(userId);
+  console.log(LOG_PREFIX, "after migrateLegacy", {
+    plataformasCache: readUserDataCache(userId, "plataformas")?.slice(0, 120),
+    watchlistCache: readUserDataCache(userId, "watchlist")?.slice(0, 120)
+  });
+
+  const jsonCols = ["plataformas", "valoraciones", "watchlist", "gustos", "racha", "perfil_meta"] as const;
+
+  const tryBackfill = async (col: (typeof jsonCols)[number]) => {
+    const serverVal = row ? (row as Record<string, unknown>)[col] : undefined;
+    if (!isServerJsonColumnEmpty(serverVal)) {
+      console.log(LOG_PREFIX, "backfill skip (server has data)", col);
+      return;
+    }
+    const raw = readLocalJsonColumn(userId, col);
+    const normalized = normalizeColumnForDbUpload(col, raw);
+    if (normalized === null || normalized === undefined) {
+      console.log(LOG_PREFIX, "backfill skip (no local)", col);
+      return;
+    }
+    console.log(LOG_PREFIX, "backfill UPLOAD", col, normalized);
+    invalidateProfileRowCache();
+    const { error: upErr } = await supabase.from("profiles").update({ [col]: normalized }).eq("id", userId);
+    if (upErr) {
+      console.error(LOG_PREFIX, "backfill update error", col, upErr);
+      return;
+    }
+    window.localStorage.setItem(cacheKey(userId, col), JSON.stringify(normalized));
+    console.log(LOG_PREFIX, "backfill OK + cache updated", col);
+  };
+
+  for (const col of jsonCols) {
+    await tryBackfill(col);
+  }
+
+  invalidateProfileRowCache();
+  console.log(LOG_PREFIX, "syncAllUserData end");
 }
 
 function pickValueFromRow(row: ProfileRow | null, key: string): string | null {
@@ -377,10 +568,40 @@ export async function saveUserData(userId: string | null, key: string, data: unk
   }
 
   if (JSON_COLUMN_KEYS.has(key)) {
-    window.localStorage.setItem(cacheKey(userId, key), serial);
-    const jsonb = typeof data === "string" ? parseJsonSafe<unknown>(data) ?? data : data;
+    let payload: unknown = typeof data === "string" ? parseJsonSafe<unknown>(data) ?? data : data;
+    if (key === "plataformas") {
+      payload = normalizePlataformasForDb(payload);
+    } else if (key === "valoraciones") {
+      payload = normalizeValoracionesForDb(payload);
+    } else if (key === "watchlist") {
+      payload = normalizeWatchlistForDb(payload);
+    } else if (key === "gustos") {
+      payload = normalizeGustosForDb(payload);
+    }
+    if (
+      (key === "plataformas" || key === "watchlist") &&
+      (payload === null || (Array.isArray(payload) && payload.length === 0))
+    ) {
+      console.warn(LOG_PREFIX, "saveUserData skip empty array column", key);
+      return;
+    }
+    if (key === "valoraciones" || key === "gustos") {
+      if (!payload || typeof payload !== "object" || Array.isArray(payload) || Object.keys(payload).length === 0) {
+        console.warn(LOG_PREFIX, "saveUserData skip empty object column", key);
+        return;
+      }
+    }
+
+    const serialOut = typeof payload === "string" ? payload : JSON.stringify(payload);
+    window.localStorage.setItem(cacheKey(userId, key), serialOut);
     invalidateProfileRowCache();
-    await supabase.from("profiles").update({ [key]: jsonb }).eq("id", userId);
+    console.log(LOG_PREFIX, "saveUserData UPDATE", key, "payload", payload);
+    const { error: upErr } = await supabase.from("profiles").update({ [key]: payload }).eq("id", userId);
+    if (upErr) {
+      console.error(LOG_PREFIX, "saveUserData update error", key, upErr);
+    } else {
+      console.log(LOG_PREFIX, "saveUserData update ok", key);
+    }
     return;
   }
 

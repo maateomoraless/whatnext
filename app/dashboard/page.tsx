@@ -15,6 +15,7 @@ import {
 import { logUserActivity, syncProfileFromLocal } from "@/lib/social";
 import { supabase } from "@/lib/supabase";
 import {
+  pushPlataformasValoracionesWatchlistFromCache,
   readUserDataCacheJson,
   saveUserData,
   setActiveStorageUserId,
@@ -1342,6 +1343,15 @@ export default function DashboardPage() {
       storageUserIdRef.current = uid;
       setActiveStorageUserId(uid);
       await syncAllUserData(uid);
+      await pushPlataformasValoracionesWatchlistFromCache(uid);
+      if (typeof console !== "undefined") {
+        console.log("[dashboard] post-sync push", {
+          plataformas: readUserDataCacheJson<string[]>(uid, "plataformas"),
+          valoracionesKeys: Object.keys(readUserDataCacheJson<Record<string, unknown>>(uid, "valoraciones") ?? {})
+            .length,
+          watchlistLen: (readUserDataCacheJson<string[]>(uid, "watchlist") ?? []).length
+        });
+      }
       if (cancelled) {
         return;
       }
