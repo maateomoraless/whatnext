@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { AnimatePresence, motion } from "framer-motion";
+import { MotionButton } from "@/components/ui/MotionButton";
 
 type Movie = {
   id: string;
@@ -222,9 +223,9 @@ export default function OnboardingValoracionesPage() {
         {!isExiting && (
           <motion.section
             key="valoraciones-screen"
-            initial={{ opacity: 0, x: 40 }}
+            initial={{ opacity: 0, x: 72 }}
             animate={{ opacity: 1, x: 0 }}
-            exit={{ opacity: 0, x: -40 }}
+            exit={{ opacity: 0, x: -72 }}
             transition={{ duration: 0.4, ease: "easeOut" }}
             className="relative mx-auto flex min-h-screen w-full max-w-[400px] flex-col items-center pt-12"
             style={{ zIndex: 1 }}
@@ -300,7 +301,7 @@ export default function OnboardingValoracionesPage() {
                               const starValue = starIndex + 1;
                               const active = !value.unseen && value.rating >= starValue;
                               return (
-                                <button
+                                <motion.button
                                   // eslint-disable-next-line react/no-array-index-key
                                   key={`${movie.id}-star-${starIndex}`}
                                   type="button"
@@ -308,13 +309,15 @@ export default function OnboardingValoracionesPage() {
                                   className="text-lg leading-none transition"
                                   style={{ color: active ? "#EF9F27" : "#3b3b3b" }}
                                   aria-label={`Valorar ${movie.title} con ${starValue} estrellas`}
+                                  whileTap={{ scale: 0.88 }}
+                                  transition={{ type: "spring", stiffness: 500, damping: 22 }}
                                 >
                                   ★
-                                </button>
+                                </motion.button>
                               );
                             })}
 
-                            <button
+                            <motion.button
                               type="button"
                               onClick={() => toggleUnseen(movie.id)}
                               className="ml-2 rounded-md border px-2 py-0.5 text-[11px] transition"
@@ -323,9 +326,11 @@ export default function OnboardingValoracionesPage() {
                                 color: value.unseen ? "#ffffff" : "#9ca3af",
                                 backgroundColor: value.unseen ? "#242424" : "transparent"
                               }}
+                              whileTap={{ scale: 0.94 }}
+                              transition={{ type: "spring", stiffness: 500, damping: 24 }}
                             >
                               no vista
-                            </button>
+                            </motion.button>
                           </div>
                         </div>
                       </div>
@@ -335,13 +340,13 @@ export default function OnboardingValoracionesPage() {
               </div>
             </div>
 
-            <button
+            <MotionButton
               type="button"
               onClick={() => setIsExiting(true)}
               className="fixed bottom-6 left-1/2 z-20 w-[calc(100%-3rem)] max-w-[400px] -translate-x-1/2 rounded-xl bg-white px-4 py-3 text-sm font-semibold text-black transition hover:bg-neutral-100"
             >
               Ver mi lista →
-            </button>
+            </MotionButton>
           </motion.section>
         )}
       </AnimatePresence>

@@ -8,6 +8,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { fetchJson, TMDB_API_KEY } from "@/components/TmdbDetailSheet";
 import type { MediaType } from "@/components/TmdbDetailSheet";
 import { supabase } from "@/lib/supabase";
+import { BottomNav } from "@/components/BottomNav";
 
 type GustosSelection = Record<string, string[]>;
 
@@ -300,49 +301,6 @@ function parseWatchlistToTmdb(watchlistId: string): { media: MediaType; id: numb
 function starsDisplay(n: number): string {
   const r = Math.min(5, Math.max(0, Math.round(n)));
   return `${"★".repeat(r)}${"☆".repeat(5 - r)}`;
-}
-
-function HomeIcon({ active = false }: { active?: boolean }) {
-  return (
-    <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" aria-hidden="true">
-      <path
-        d="M4 11.5 12 5l8 6.5V20a1 1 0 0 1-1 1h-4.8v-6h-4.4v6H5a1 1 0 0 1-1-1v-8.5Z"
-        stroke={active ? "#fff" : "#737373"}
-        strokeWidth="1.8"
-        strokeLinejoin="round"
-      />
-    </svg>
-  );
-}
-
-function SearchIcon() {
-  return (
-    <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" aria-hidden="true">
-      <circle cx="11" cy="11" r="6.5" stroke="#737373" strokeWidth="1.8" />
-      <path d="m16 16 4 4" stroke="#737373" strokeWidth="1.8" strokeLinecap="round" />
-    </svg>
-  );
-}
-
-function FriendsIcon() {
-  return (
-    <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" aria-hidden="true">
-      <circle cx="9" cy="9" r="3" stroke="#737373" strokeWidth="1.8" />
-      <circle cx="16.5" cy="10.5" r="2.5" stroke="#737373" strokeWidth="1.8" />
-      <path d="M4.5 19a4.5 4.5 0 0 1 9 0" stroke="#737373" strokeWidth="1.8" strokeLinecap="round" />
-      <path d="M14.5 19a3.5 3.5 0 0 1 5 0" stroke="#737373" strokeWidth="1.8" strokeLinecap="round" />
-    </svg>
-  );
-}
-
-function ProfileIcon({ active = false }: { active?: boolean }) {
-  const stroke = active ? "#fff" : "#737373";
-  return (
-    <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" aria-hidden="true">
-      <circle cx="12" cy="8" r="3.2" stroke={stroke} strokeWidth="1.8" />
-      <path d="M5 20a7 7 0 0 1 14 0" stroke={stroke} strokeWidth="1.8" strokeLinecap="round" />
-    </svg>
-  );
 }
 
 type AuthProfile = {
@@ -1340,43 +1298,7 @@ export default function PerfilPage() {
         </div>
       ) : null}
 
-      <nav className="fixed bottom-0 left-1/2 z-20 w-full max-w-[400px] -translate-x-1/2 border-t border-[#1f1f1f] bg-[#0a0a0a]/95 px-5 py-3 backdrop-blur">
-        <ul className="grid grid-cols-4 gap-2">
-          <li>
-            <Link
-              href="/dashboard"
-              className="flex flex-col items-center gap-1 text-[11px] font-medium text-neutral-500 transition hover:text-neutral-300"
-            >
-              <HomeIcon />
-              <span>Inicio</span>
-            </Link>
-          </li>
-          <li>
-            <Link
-              href="/buscar"
-              className="flex flex-col items-center gap-1 text-[11px] font-medium text-neutral-500 transition hover:text-neutral-300"
-            >
-              <SearchIcon />
-              <span>Buscar</span>
-            </Link>
-          </li>
-          <li>
-            <Link
-              href="/amigos"
-              className="flex flex-col items-center gap-1 text-[11px] font-medium text-neutral-500 transition hover:text-neutral-300"
-            >
-              <FriendsIcon />
-              <span>Amigos</span>
-            </Link>
-          </li>
-          <li>
-            <Link href="/perfil" className="flex flex-col items-center gap-1 text-[11px] font-medium text-white">
-              <ProfileIcon active />
-              <span>Perfil</span>
-            </Link>
-          </li>
-        </ul>
-      </nav>
+      <BottomNav />
     </main>
   );
 }

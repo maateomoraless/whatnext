@@ -3,6 +3,7 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { AnimatePresence, motion } from "framer-motion";
+import { MotionButton } from "@/components/ui/MotionButton";
 import { supabase } from "@/lib/supabase";
 
 function sanitizeUsernameInput(value: string): string {
@@ -117,9 +118,9 @@ export default function OnboardingNombrePage() {
         {!isExiting && (
           <motion.section
             key="nombre-screen"
-            initial={{ opacity: 0, x: 40 }}
+            initial={{ opacity: 0, x: 72 }}
             animate={{ opacity: 1, x: 0 }}
-            exit={{ opacity: 0, x: -40 }}
+            exit={{ opacity: 0, x: -72 }}
             transition={{ duration: 0.4, ease: "easeOut" }}
             className="mx-auto flex min-h-screen w-full max-w-[400px] flex-col items-center pt-12"
             style={{ position: "relative", zIndex: 1 }}
@@ -204,7 +205,7 @@ export default function OnboardingNombrePage() {
                   ))}
                 </p>
 
-                <button
+                <MotionButton
                   type="submit"
                   disabled={
                     isSubmitting ||
@@ -216,7 +217,7 @@ export default function OnboardingNombrePage() {
                   className="mt-12 w-full rounded-xl bg-white px-4 py-3 text-sm font-semibold text-black transition hover:bg-neutral-100 disabled:opacity-60"
                 >
                   Siguiente →
-                </button>
+                </MotionButton>
                 <p className="mt-2 text-center text-xs text-neutral-500">{usernameWithAt}</p>
               </form>
             </div>

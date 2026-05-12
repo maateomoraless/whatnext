@@ -2,6 +2,8 @@
 
 import { FormEvent, useState } from "react";
 import { useRouter } from "next/navigation";
+import { motion } from "framer-motion";
+import { MotionButton } from "@/components/ui/MotionButton";
 import { supabase } from "@/lib/supabase";
 
 export default function OnboardingEmailPage() {
@@ -55,7 +57,12 @@ export default function OnboardingEmailPage() {
 
   return (
     <main className="flex min-h-screen justify-center bg-[#0a0a0a] px-6 text-white">
-      <section className="mx-auto flex w-full max-w-[400px] flex-col pb-16 pt-12">
+      <motion.section
+        className="mx-auto flex w-full max-w-[400px] flex-col pb-16 pt-12"
+        initial={{ opacity: 0, x: 72 }}
+        animate={{ opacity: 1, x: 0 }}
+        transition={{ duration: 0.45, ease: [0.22, 1, 0.36, 1] }}
+      >
         <p className="mb-6 w-full text-center text-xs uppercase tracking-[0.35em] text-neutral-500 select-none">
           WhatNext?
         </p>
@@ -96,32 +103,32 @@ export default function OnboardingEmailPage() {
           {error ? <p className="text-center text-sm text-red-400">{error}</p> : null}
           {info ? <p className="text-center text-sm text-neutral-400">{info}</p> : null}
 
-          <button
+          <MotionButton
             type="submit"
             disabled={loading}
             className="mt-2 w-full rounded-xl bg-white px-4 py-3 text-sm font-semibold text-black transition hover:bg-neutral-100 disabled:opacity-60"
           >
             Entrar
-          </button>
+          </MotionButton>
 
-          <button
+          <MotionButton
             type="button"
             disabled={loading}
             onClick={() => void handleSignUp()}
             className="w-full rounded-xl border border-[#333] bg-[#161616] px-4 py-3 text-sm font-medium text-white transition hover:border-neutral-500 disabled:opacity-60"
           >
             Crear cuenta
-          </button>
+          </MotionButton>
         </form>
 
-        <button
+        <MotionButton
           type="button"
           onClick={() => router.push("/")}
-          className="mt-8 text-center text-sm text-neutral-500 underline-offset-2 hover:text-neutral-300 hover:underline"
+          className="mt-8 w-full text-center text-sm text-neutral-500 underline-offset-2 hover:text-neutral-300 hover:underline"
         >
           Volver
-        </button>
-      </section>
+        </MotionButton>
+      </motion.section>
     </main>
   );
 }

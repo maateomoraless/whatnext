@@ -1,7 +1,10 @@
 "use client";
 
-import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
+import { AnimatePresence, motion, type Variants } from "framer-motion";
+import { BottomNav } from "@/components/BottomNav";
+import { MotionButton } from "@/components/ui/MotionButton";
+import { SkeletonShimmer } from "@/components/ui/SkeletonShimmer";
 import { supabase } from "@/lib/supabase";
 import { syncProfileFromLocal } from "@/lib/social";
 
@@ -36,49 +39,17 @@ type ActivityRow = {
   created_at: string;
 };
 
-function HomeIcon({ active = false }: { active?: boolean }) {
-  return (
-    <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" aria-hidden="true">
-      <path
-        d="M4 11.5 12 5l8 6.5V20a1 1 0 0 1-1 1h-4.8v-6h-4.4v6H5a1 1 0 0 1-1-1v-8.5Z"
-        stroke={active ? "#fff" : "#737373"}
-        strokeWidth="1.8"
-        strokeLinejoin="round"
-      />
-    </svg>
-  );
-}
+const amigosListContainer: Variants = {
+  hidden: {},
+  show: {
+    transition: { staggerChildren: 0.06, delayChildren: 0.05 }
+  }
+};
 
-function SearchIcon() {
-  return (
-    <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" aria-hidden="true">
-      <circle cx="11" cy="11" r="6.5" stroke="#737373" strokeWidth="1.8" />
-      <path d="m16 16 4 4" stroke="#737373" strokeWidth="1.8" strokeLinecap="round" />
-    </svg>
-  );
-}
-
-function FriendsIcon({ active = false }: { active?: boolean }) {
-  const stroke = active ? "#fff" : "#737373";
-  return (
-    <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" aria-hidden="true">
-      <circle cx="9" cy="9" r="3" stroke={stroke} strokeWidth="1.8" />
-      <circle cx="16.5" cy="10.5" r="2.5" stroke={stroke} strokeWidth="1.8" />
-      <path d="M4.5 19a4.5 4.5 0 0 1 9 0" stroke={stroke} strokeWidth="1.8" strokeLinecap="round" />
-      <path d="M14.5 19a3.5 3.5 0 0 1 5 0" stroke={stroke} strokeWidth="1.8" strokeLinecap="round" />
-    </svg>
-  );
-}
-
-function ProfileIcon({ active = false }: { active?: boolean }) {
-  const stroke = active ? "#fff" : "#737373";
-  return (
-    <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" aria-hidden="true">
-      <circle cx="12" cy="8" r="3.2" stroke={stroke} strokeWidth="1.8" />
-      <path d="M5 20a7 7 0 0 1 14 0" stroke={stroke} strokeWidth="1.8" strokeLinecap="round" />
-    </svg>
-  );
-}
+const amigosListItem: Variants = {
+  hidden: { opacity: 0, y: 14 },
+  show: { opacity: 1, y: 0, transition: { duration: 0.38, ease: [0.22, 1, 0.36, 1] } }
+};
 
 function MagnifyingGlassIcon() {
   return (
@@ -333,13 +304,13 @@ export default function AmigosPage() {
                 />
               </div>
             </label>
-            <button
+            <MotionButton
               type="button"
               onClick={openWhatsAppInvite}
               className="flex-shrink-0 rounded-xl border border-neutral-600 px-4 py-3 text-sm font-medium text-neutral-200 transition hover:border-neutral-400 hover:text-white"
             >
               Invitar
-            </button>
+            </MotionButton>
           </div>
         </section>
 
@@ -347,38 +318,53 @@ export default function AmigosPage() {
           <section className="mb-6 rounded-xl border border-[#2a2a2a] bg-[#101010] px-4 py-4">
             <h2 className="text-sm font-semibold text-white">Solicitudes recibidas</h2>
             <div className="mt-3 space-y-3">
-              {incoming.map((row) => {
-                const p = profileById[row.requester_id];
-                const label = p?.full_name || p?.username || "Usuario";
-                return (
-                  <article key={row.id} className="rounded-lg border border-[#252525] bg-[#141414] p-3">
-                    <p className="text-sm text-white">{label}</p>
-                    <div className="mt-2 flex gap-2">
-                      <button
-                        type="button"
-                        onClick={() => void handleIncoming(row, "accepted")}
-                        className="flex-1 rounded-lg bg-white py-2 text-xs font-semibold text-black transition hover:bg-neutral-100"
-                      >
-                        Aceptar
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => void handleIncoming(row, "rejected")}
-                        className="flex-1 rounded-lg border border-[#333] bg-[#1a1a1a] py-2 text-xs font-medium text-neutral-300 transition hover:border-neutral-500 hover:text-white"
-                      >
-                        Rechazar
-                      </button>
-                    </div>
-                  </article>
-                );
-              })}
+              <AnimatePresence mode="popLayout">
+                {incoming.map((row) => {
+                  const p = profileById[row.requester_id];
+                  const label = p?.full_name || p?.username || "Usuario";
+                  return (
+                    <motion.article
+                      key={row.id}
+                      layout
+                      initial={{ opacity: 0, x: 28 }}
+                      animate={{ opacity: 1, x: 0 }}
+                      exit={{ opacity: 0, x: -36, transition: { duration: 0.3, ease: [0.4, 0, 1, 1] } }}
+                      transition={{ type: "spring", stiffness: 380, damping: 28 }}
+                      className="rounded-lg border border-[#252525] bg-[#141414] p-3"
+                    >
+                      <p className="text-sm text-white">{label}</p>
+                      <div className="mt-2 flex gap-2">
+                        <MotionButton
+                          type="button"
+                          onClick={() => void handleIncoming(row, "accepted")}
+                          className="flex-1 rounded-lg bg-white py-2 text-xs font-semibold text-black transition hover:bg-neutral-100"
+                        >
+                          Aceptar
+                        </MotionButton>
+                        <MotionButton
+                          type="button"
+                          onClick={() => void handleIncoming(row, "rejected")}
+                          className="flex-1 rounded-lg border border-[#333] bg-[#1a1a1a] py-2 text-xs font-medium text-neutral-300 transition hover:border-neutral-500 hover:text-white"
+                        >
+                          Rechazar
+                        </MotionButton>
+                      </div>
+                    </motion.article>
+                  );
+                })}
+              </AnimatePresence>
             </div>
           </section>
         ) : null}
 
         {loading ? (
-          <section className="mb-8 rounded-xl border border-[#2a2a2a] bg-[#101010] px-4 py-10 text-center">
-            <p className="text-sm text-neutral-500">Cargando amigos...</p>
+          <section className="mb-8 rounded-xl border border-[#2a2a2a] bg-[#101010] px-4 py-8">
+            <div className="mx-auto max-w-[240px] space-y-3">
+              <SkeletonShimmer className="h-4 w-full" rounded="md" />
+              <SkeletonShimmer className="h-16 w-full" rounded="lg" />
+              <SkeletonShimmer className="h-16 w-full" rounded="lg" />
+              <p className="text-center text-sm text-neutral-500">Cargando amigos...</p>
+            </div>
           </section>
         ) : friends.length === 0 ? (
           <section className="mb-8 rounded-xl border border-[#2a2a2a] bg-[#101010] px-4 py-10 text-center">
@@ -407,32 +393,46 @@ export default function AmigosPage() {
         {friendSearch.trim().length >= 2 ? (
           <section className="mb-6 rounded-xl border border-[#2a2a2a] bg-[#101010] px-4 py-4">
             <h2 className="text-sm font-semibold text-white">Resultados</h2>
-            {loadingSearch ? <p className="mt-3 text-sm text-neutral-500">Buscando...</p> : null}
+            {loadingSearch ? (
+              <div className="mt-3 space-y-2">
+                <SkeletonShimmer className="h-12 w-full" rounded="lg" />
+                <SkeletonShimmer className="h-12 w-full" rounded="lg" />
+              </div>
+            ) : null}
             {!loadingSearch && searchResults.length === 0 ? (
               <p className="mt-3 text-sm text-neutral-500">Sin resultados para esta búsqueda.</p>
             ) : null}
-            <div className="mt-3 space-y-3">
+            <motion.div
+              variants={amigosListContainer}
+              initial="hidden"
+              animate="show"
+              className="mt-3 space-y-3"
+            >
               {searchResults.map((profile) => {
                 const key = `${userId}:${profile.id}`;
                 const relationExists = relationshipKeys.has(key);
                 return (
-                  <article key={profile.id} className="flex items-center justify-between rounded-lg border border-[#252525] bg-[#141414] p-3">
+                  <motion.article
+                    key={profile.id}
+                    variants={amigosListItem}
+                    className="flex items-center justify-between rounded-lg border border-[#252525] bg-[#141414] p-3"
+                  >
                     <div className="min-w-0">
                       <p className="truncate text-sm text-white">{profile.full_name || profile.username || "Usuario"}</p>
                       {profile.username ? <p className="text-xs text-neutral-500">@{profile.username}</p> : null}
                     </div>
-                    <button
+                    <MotionButton
                       type="button"
                       disabled={relationExists || sendingTo === profile.id}
                       onClick={() => void sendFriendRequest(profile)}
                       className="rounded-lg border border-[#333] bg-[#1a1a1a] px-3 py-1.5 text-xs font-medium text-neutral-200 transition hover:border-neutral-500 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
                     >
                       {relationExists ? "Enviada" : sendingTo === profile.id ? "Enviando..." : "Añadir amigo"}
-                    </button>
-                  </article>
+                    </MotionButton>
+                  </motion.article>
                 );
               })}
-            </div>
+            </motion.div>
           </section>
         ) : null}
 
@@ -469,63 +469,27 @@ export default function AmigosPage() {
           <p className="mt-3 text-center text-sm leading-relaxed text-neutral-300">
             ¿A quién conoces que también pierda tiempo buscando qué ver?
           </p>
-          <button
+          <MotionButton
             type="button"
             onClick={openWhatsAppInvite}
             className="mt-5 w-full rounded-xl bg-[#25D366] py-3 text-sm font-semibold text-white transition hover:bg-[#20bd5a]"
           >
             Invitar por WhatsApp
-          </button>
-          <button
+          </MotionButton>
+          <MotionButton
             type="button"
             onClick={copyAppLink}
             className="mt-3 w-full rounded-xl border border-[#333] bg-[#1a1a1a] py-3 text-sm font-medium text-white transition hover:border-neutral-500"
           >
             {linkCopied ? "Copiado" : "Copiar enlace"}
-          </button>
+          </MotionButton>
           <p className="mt-4 text-center text-xs text-neutral-500">
             Cuantos más amigos, mejores recomendaciones
           </p>
         </section>
       </div>
 
-      <nav className="fixed bottom-0 left-1/2 z-20 w-full max-w-[400px] -translate-x-1/2 border-t border-[#1f1f1f] bg-[#0a0a0a]/95 px-5 py-3 backdrop-blur">
-        <ul className="grid grid-cols-4 gap-2">
-          <li>
-            <Link
-              href="/dashboard"
-              className="flex flex-col items-center gap-1 text-[11px] font-medium text-neutral-500 transition hover:text-neutral-300"
-            >
-              <HomeIcon />
-              <span>Inicio</span>
-            </Link>
-          </li>
-          <li>
-            <Link
-              href="/buscar"
-              className="flex flex-col items-center gap-1 text-[11px] font-medium text-neutral-500 transition hover:text-neutral-300"
-            >
-              <SearchIcon />
-              <span>Buscar</span>
-            </Link>
-          </li>
-          <li>
-            <Link href="/amigos" className="flex flex-col items-center gap-1 text-[11px] font-medium text-white">
-              <FriendsIcon active />
-              <span>Amigos</span>
-            </Link>
-          </li>
-          <li>
-            <Link
-              href="/perfil"
-              className="flex flex-col items-center gap-1 text-[11px] font-medium text-neutral-500 transition hover:text-neutral-300"
-            >
-              <ProfileIcon />
-              <span>Perfil</span>
-            </Link>
-          </li>
-        </ul>
-      </nav>
+      <BottomNav />
     </main>
   );
 }

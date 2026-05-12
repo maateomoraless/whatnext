@@ -1,9 +1,11 @@
 "use client";
 
 import Image from "next/image";
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
+import { motion, type Variants } from "framer-motion";
+import { BottomNav } from "@/components/BottomNav";
+import { SkeletonShimmer } from "@/components/ui/SkeletonShimmer";
 import {
   TmdbDetailSheet,
   TMDB_API_KEY,
@@ -23,50 +25,25 @@ import { bumpMovieStreak } from "@/lib/movieStreak";
 import { logUserActivity, syncProfileFromLocal } from "@/lib/social";
 import { supabase } from "@/lib/supabase";
 
-function HomeIcon({ active = false }: { active?: boolean }) {
-  return (
-    <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" aria-hidden="true">
-      <path
-        d="M4 11.5 12 5l8 6.5V20a1 1 0 0 1-1 1h-4.8v-6h-4.4v6H5a1 1 0 0 1-1-1v-8.5Z"
-        stroke={active ? "#fff" : "#737373"}
-        strokeWidth="1.8"
-        strokeLinejoin="round"
-      />
-    </svg>
-  );
-}
+const buscarGridContainer: Variants = {
+  hidden: {},
+  show: {
+    transition: {
+      staggerChildren: 0.055,
+      delayChildren: 0.04
+    }
+  }
+};
 
-function SearchIcon({ active = false }: { active?: boolean }) {
-  const stroke = active ? "#fff" : "#737373";
-  return (
-    <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" aria-hidden="true">
-      <circle cx="11" cy="11" r="6.5" stroke={stroke} strokeWidth="1.8" />
-      <path d="m16 16 4 4" stroke={stroke} strokeWidth="1.8" strokeLinecap="round" />
-    </svg>
-  );
-}
-
-function FriendsIcon({ active = false }: { active?: boolean }) {
-  const stroke = active ? "#fff" : "#737373";
-  return (
-    <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" aria-hidden="true">
-      <circle cx="9" cy="9" r="3" stroke={stroke} strokeWidth="1.8" />
-      <circle cx="16.5" cy="10.5" r="2.5" stroke={stroke} strokeWidth="1.8" />
-      <path d="M4.5 19a4.5 4.5 0 0 1 9 0" stroke={stroke} strokeWidth="1.8" strokeLinecap="round" />
-      <path d="M14.5 19a3.5 3.5 0 0 1 5 0" stroke={stroke} strokeWidth="1.8" strokeLinecap="round" />
-    </svg>
-  );
-}
-
-function ProfileIcon({ active = false }: { active?: boolean }) {
-  const stroke = active ? "#fff" : "#737373";
-  return (
-    <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" aria-hidden="true">
-      <circle cx="12" cy="8" r="3.2" stroke={stroke} strokeWidth="1.8" />
-      <path d="M5 20a7 7 0 0 1 14 0" stroke={stroke} strokeWidth="1.8" strokeLinecap="round" />
-    </svg>
-  );
-}
+const buscarGridItem: Variants = {
+  hidden: { opacity: 0, y: 16, scale: 0.96 },
+  show: {
+    opacity: 1,
+    y: 0,
+    scale: 1,
+    transition: { duration: 0.36, ease: [0.22, 1, 0.36, 1] }
+  }
+};
 
 function MagnifyingGlassIcon() {
   return (
@@ -98,11 +75,14 @@ function HorizontalPosterRow({
           const label = displayMedia === "movie" ? item.title ?? "Sin título" : item.name ?? "Sin título";
           const year = yearFromItem(item, displayMedia);
           return (
-            <button
+            <motion.button
               key={`${displayMedia}-${item.id}`}
               type="button"
               onClick={() => onPick(item, displayMedia)}
               className="w-[100px] flex-shrink-0 text-left"
+              whileHover={{ scale: 0.97 }}
+              whileTap={{ scale: 0.97 }}
+              transition={{ type: "spring", stiffness: 420, damping: 28 }}
             >
               <div className="aspect-[2/3] w-full overflow-hidden rounded-xl border border-[#2a2a2a] bg-[#1a1a1a]">
                 {item.poster_path ? (
@@ -121,7 +101,7 @@ function HorizontalPosterRow({
               </div>
               <p className="mt-2 line-clamp-2 text-xs font-medium text-white">{label}</p>
               <p className="text-[11px] text-neutral-500">{year}</p>
-            </button>
+            </motion.button>
           );
         })}
       </div>
@@ -402,19 +382,31 @@ export default function BuscarPage() {
         {searching ? (
           <section>
             {searchLoading ? (
-              <p className="text-center text-sm text-neutral-500">Buscando…</p>
+              <div className="mx-auto max-w-[220px] space-y-3 py-8">
+                <SkeletonShimmer className="h-14 w-full" rounded="xl" />
+                <p className="text-center text-sm text-neutral-500">Buscando…</p>
+              </div>
             ) : (
-              <div className="grid grid-cols-3 gap-2">
+              <motion.div
+                variants={buscarGridContainer}
+                initial="hidden"
+                animate="show"
+                className="grid grid-cols-3 gap-2"
+              >
                 {searchResults.map((item) => {
                   const media = item.media_type === "tv" ? "tv" : "movie";
                   const label = media === "movie" ? item.title ?? "—" : item.name ?? "—";
                   const year = yearFromItem(item, media);
                   return (
-                    <button
+                    <motion.button
                       key={`${media}-${item.id}`}
                       type="button"
+                      variants={buscarGridItem}
                       onClick={() => handlePick(item, media)}
                       className="text-left"
+                      whileHover={{ scale: 0.97 }}
+                      whileTap={{ scale: 0.97 }}
+                      transition={{ type: "spring", stiffness: 450, damping: 28 }}
                     >
                       <div className="aspect-[2/3] w-full overflow-hidden rounded-lg border border-[#2a2a2a] bg-[#141414]">
                         {item.poster_path ? (
@@ -433,17 +425,28 @@ export default function BuscarPage() {
                       </div>
                       <p className="mt-1.5 line-clamp-2 text-[11px] font-medium leading-tight text-white">{label}</p>
                       <p className="text-[10px] text-neutral-500">{year}</p>
-                    </button>
+                    </motion.button>
                   );
                 })}
-              </div>
+              </motion.div>
             )}
             {!searchLoading && searchResults.length === 0 ? (
               <p className="mt-6 text-center text-sm text-neutral-500">Sin resultados.</p>
             ) : null}
           </section>
         ) : browseLoading ? (
-          <p className="text-center text-sm text-neutral-500">Cargando…</p>
+          <div className="space-y-6">
+            {[0, 1, 2].map((row) => (
+              <div key={row} className="space-y-3">
+                <SkeletonShimmer className="h-4 w-36" rounded="md" />
+                <div className="flex gap-2">
+                  {Array.from({ length: 4 }).map((_, i) => (
+                    <SkeletonShimmer key={i} className="h-[150px] w-[100px] flex-shrink-0" rounded="xl" />
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
         ) : (
           <>
             <HorizontalPosterRow
@@ -482,46 +485,7 @@ export default function BuscarPage() {
         persistRating={persistRating}
       />
 
-      <nav className="fixed bottom-0 left-1/2 z-20 w-full max-w-[400px] -translate-x-1/2 border-t border-[#1f1f1f] bg-[#0a0a0a]/95 px-5 py-3 backdrop-blur">
-        <ul className="grid grid-cols-4 gap-2">
-          <li>
-            <Link
-              href="/dashboard"
-              className="flex flex-col items-center gap-1 text-[11px] font-medium text-neutral-500 transition hover:text-neutral-300"
-            >
-              <HomeIcon />
-              <span>Inicio</span>
-            </Link>
-          </li>
-          <li>
-            <Link
-              href="/buscar"
-              className="flex flex-col items-center gap-1 text-[11px] font-medium text-white"
-            >
-              <SearchIcon active />
-              <span>Buscar</span>
-            </Link>
-          </li>
-          <li>
-            <Link
-              href="/amigos"
-              className="flex flex-col items-center gap-1 text-[11px] font-medium text-neutral-500 transition hover:text-neutral-300"
-            >
-              <FriendsIcon />
-              <span>Amigos</span>
-            </Link>
-          </li>
-          <li>
-            <Link
-              href="/perfil"
-              className="flex flex-col items-center gap-1 text-[11px] font-medium text-neutral-500 transition hover:text-neutral-300"
-            >
-              <ProfileIcon />
-              <span>Perfil</span>
-            </Link>
-          </li>
-        </ul>
-      </nav>
+      <BottomNav />
     </main>
   );
 }

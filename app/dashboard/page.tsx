@@ -1,9 +1,10 @@
 "use client";
 
 import Image from "next/image";
-import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { AnimatePresence, motion, type Variants } from "framer-motion";
+import { BottomNav } from "@/components/BottomNav";
 import { bumpMovieStreak, readEffectiveMovieStreak } from "@/lib/movieStreak";
 import { logUserActivity, syncProfileFromLocal } from "@/lib/social";
 import { supabase } from "@/lib/supabase";
@@ -21,6 +22,9 @@ import {
   type TvDetail,
   type WatchProvidersResponse
 } from "@/components/TmdbDetailSheet";
+import { MotionButton } from "@/components/ui/MotionButton";
+import { MotionLink } from "@/components/ui/MotionLink";
+import { SkeletonMovieCard, SkeletonShimmer } from "@/components/ui/SkeletonShimmer";
 
 type MatchItem = {
   id: string;
@@ -985,48 +989,25 @@ async function fetchMoodRecommendation(pick: MoodPick, apiKey: string, signal: A
   };
 }
 
-function HomeIcon({ active = false }: { active?: boolean }) {
-  return (
-    <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" aria-hidden="true">
-      <path
-        d="M4 11.5 12 5l8 6.5V20a1 1 0 0 1-1 1h-4.8v-6h-4.4v6H5a1 1 0 0 1-1-1v-8.5Z"
-        stroke={active ? "#fff" : "#737373"}
-        strokeWidth="1.8"
-        strokeLinejoin="round"
-      />
-    </svg>
-  );
-}
+const dashboardRowContainerVariants: Variants = {
+  hidden: {},
+  show: {
+    transition: {
+      staggerChildren: 0.07,
+      delayChildren: 0.06
+    }
+  }
+};
 
-function SearchIcon() {
-  return (
-    <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" aria-hidden="true">
-      <circle cx="11" cy="11" r="6.5" stroke="#737373" strokeWidth="1.8" />
-      <path d="m16 16 4 4" stroke="#737373" strokeWidth="1.8" strokeLinecap="round" />
-    </svg>
-  );
-}
-
-function FriendsIcon() {
-  return (
-    <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" aria-hidden="true">
-      <circle cx="9" cy="9" r="3" stroke="#737373" strokeWidth="1.8" />
-      <circle cx="16.5" cy="10.5" r="2.5" stroke="#737373" strokeWidth="1.8" />
-      <path d="M4.5 19a4.5 4.5 0 0 1 9 0" stroke="#737373" strokeWidth="1.8" strokeLinecap="round" />
-      <path d="M14.5 19a3.5 3.5 0 0 1 5 0" stroke="#737373" strokeWidth="1.8" strokeLinecap="round" />
-    </svg>
-  );
-}
-
-function ProfileIcon({ active = false }: { active?: boolean }) {
-  const stroke = active ? "#fff" : "#737373";
-  return (
-    <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" aria-hidden="true">
-      <circle cx="12" cy="8" r="3.2" stroke={stroke} strokeWidth="1.8" />
-      <path d="M5 20a7 7 0 0 1 14 0" stroke={stroke} strokeWidth="1.8" strokeLinecap="round" />
-    </svg>
-  );
-}
+const dashboardMovieCardVariants: Variants = {
+  hidden: { opacity: 0, y: 22, scale: 0.98 },
+  show: {
+    opacity: 1,
+    y: 0,
+    scale: 1,
+    transition: { duration: 0.42, ease: [0.22, 1, 0.36, 1] }
+  }
+};
 
 function getGreetingByHour(hour: number) {
   if (hour >= 6 && hour <= 13) {
@@ -1090,8 +1071,8 @@ function MovieCard({
   };
 
   return (
-    <article key={item.id} className="w-[140px] flex-shrink-0">
-      <div
+    <motion.article variants={dashboardMovieCardVariants} className="w-[140px] flex-shrink-0">
+      <motion.div
         role={onOpenDetail ? "button" : undefined}
         tabIndex={onOpenDetail ? 0 : undefined}
         onClick={onOpenDetail ? handleOpenDetail : undefined}
@@ -1108,6 +1089,9 @@ function MovieCard({
         className={`relative h-[190px] w-full overflow-hidden rounded-xl border border-[#2a2a2a] ${
           onOpenDetail ? "cursor-pointer" : ""
         }`}
+        whileHover={onOpenDetail ? { scale: 0.97 } : undefined}
+        whileTap={onOpenDetail ? { scale: 0.97 } : undefined}
+        transition={{ type: "spring", stiffness: 420, damping: 28 }}
       >
         {item.posterPath != null && item.posterPath !== "" ? (
           <Image
@@ -1136,7 +1120,7 @@ function MovieCard({
         >
           {isSaved ? <CheckIcon /> : <BookmarkIcon />}
         </button>
-      </div>
+      </motion.div>
       <p
         className={`mt-2 truncate text-sm font-medium text-white ${onOpenDetail ? "cursor-pointer" : ""}`}
         onClick={onOpenDetail ? handleOpenDetail : undefined}
@@ -1153,7 +1137,7 @@ function MovieCard({
       </div>
       {onRateMovie ? (
         <div className="mt-2">
-          <button
+          <MotionButton
             type="button"
             onClick={(event) => {
               event.stopPropagation();
@@ -1162,13 +1146,13 @@ function MovieCard({
             className="w-full rounded-md border border-[#333] bg-[#161616] px-2 py-1 text-[10px] font-medium text-neutral-300 transition hover:border-neutral-500 hover:text-white"
           >
             ✓ Ya la vi
-          </button>
+          </MotionButton>
           {seenPanelOpen ? (
             <div className="mt-2 rounded-lg border border-[#2a2a2a] bg-[#121212] p-2">
               <p className="mb-1.5 text-center text-[10px] text-neutral-500">Valoración</p>
               <div className="flex justify-center gap-0.5">
                 {[1, 2, 3, 4, 5].map((star) => (
-                  <button
+                  <motion.button
                     key={star}
                     type="button"
                     onClick={(event) => {
@@ -1178,13 +1162,15 @@ function MovieCard({
                     }}
                     className="flex h-7 w-7 items-center justify-center rounded-md bg-[#2a2a2a] text-sm text-neutral-400 transition hover:bg-[#fbbf24] hover:text-black"
                     aria-label={`Valorar ${star} estrellas`}
+                    whileTap={{ scale: 0.9 }}
+                    transition={{ type: "spring", stiffness: 500, damping: 22 }}
                   >
                     ★
-                  </button>
+                  </motion.button>
                 ))}
               </div>
               {onMarkSeenUnrated ? (
-                <button
+                <MotionButton
                   type="button"
                   onClick={(event) => {
                     event.stopPropagation();
@@ -1194,13 +1180,13 @@ function MovieCard({
                   className="mt-2 w-full rounded-md border border-dashed border-neutral-600 py-1 text-[10px] text-neutral-500 transition hover:border-neutral-500 hover:text-neutral-300"
                 >
                   Solo marcar como vista
-                </button>
+                </MotionButton>
               ) : null}
             </div>
           ) : null}
         </div>
       ) : null}
-    </article>
+    </motion.article>
   );
 }
 
@@ -1881,20 +1867,31 @@ export default function DashboardPage() {
           <p className="mt-6 text-sm text-neutral-400">Tu lista de hoy:</p>
         </header>
 
-        <section className="mb-8">
+        <motion.section
+          className="mb-8"
+          initial={{ opacity: 0, y: 32 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.48, delay: 0, ease: [0.22, 1, 0.36, 1] }}
+        >
           <h2 className="mb-3 text-base font-semibold text-white">Para ti hoy:</h2>
           <p className="mb-2 text-xs text-neutral-400">
             Basado en tus gustos · {selectedPlatforms.length > 0 ? selectedPlatforms.join(", ") : "Todas las plataformas"}
           </p>
-          <div className="flex flex-row gap-3 overflow-x-scroll pb-2">
+          <motion.div
+            className="flex flex-row gap-3 overflow-x-scroll pb-2"
+            variants={dashboardRowContainerVariants}
+            initial="hidden"
+            animate="show"
+          >
             {isLoadingPopular ? (
               Array.from({ length: 4 }).map((_, index) => (
-                <article key={`popular-skeleton-${index}`} className="w-[140px] flex-shrink-0 animate-pulse">
-                  <div className="h-[190px] w-full rounded-xl bg-[#2a2a2a]" />
-                  <div className="mt-2 h-3 w-4/5 rounded bg-[#2a2a2a]" />
-                  <div className="mt-2 h-2 w-2/5 rounded bg-[#2a2a2a]" />
-                  <div className="mt-2 h-2 w-3/5 rounded bg-[#2a2a2a]" />
-                </article>
+                <motion.div
+                  key={`popular-skeleton-${index}`}
+                  variants={dashboardMovieCardVariants}
+                  className="w-[140px] flex-shrink-0"
+                >
+                  <SkeletonMovieCard />
+                </motion.div>
               ))
             ) : moviesForToday.length > 0 ? (
               moviesForToday.map((item) => (
@@ -1910,41 +1907,58 @@ export default function DashboardPage() {
               ))
             ) : (
               Array.from({ length: 4 }).map((_, index) => (
-                <article key={`para-ti-fallback-${index}`} className="w-[140px] flex-shrink-0 animate-pulse">
-                  <div className="h-[190px] w-full rounded-xl bg-[#2a2a2a]" />
-                  <div className="mt-2 h-3 w-4/5 rounded bg-[#2a2a2a]" />
-                  <div className="mt-2 h-2 w-2/5 rounded bg-[#2a2a2a]" />
-                  <div className="mt-2 h-2 w-3/5 rounded bg-[#2a2a2a]" />
-                </article>
+                <motion.div
+                  key={`para-ti-fallback-${index}`}
+                  variants={dashboardMovieCardVariants}
+                  className="w-[140px] flex-shrink-0"
+                >
+                  <SkeletonMovieCard />
+                </motion.div>
               ))
             )}
-          </div>
-        </section>
+          </motion.div>
+        </motion.section>
 
-        <section className="mb-8">
+        <motion.section
+          className="mb-8"
+          initial={{ opacity: 0, y: 32 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.48, delay: 0.07, ease: [0.22, 1, 0.36, 1] }}
+        >
           <h2 className="mb-3 text-base font-semibold text-white">Modo pareja</h2>
           <p className="mb-3 text-xs text-neutral-400">Encuentra una película que os guste a los dos</p>
-          <Link
+          <MotionLink
             href="/pareja"
             className="block w-full rounded-xl bg-white py-3 text-center text-sm font-semibold text-black transition hover:bg-neutral-100"
           >
             Busquemos una peli juntos
-          </Link>
-        </section>
+          </MotionLink>
+        </motion.section>
 
-        <section className="mb-8">
+        <motion.section
+          className="mb-8"
+          initial={{ opacity: 0, y: 32 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.48, delay: 0.12, ease: [0.22, 1, 0.36, 1] }}
+        >
           <h2 className="mb-3 text-base font-semibold text-white">
             Porque te gustó {becauseLikedFilmTitle}
           </h2>
-          <div className="flex flex-row gap-3 overflow-x-scroll pb-2">
+          <motion.div
+            className="flex flex-row gap-3 overflow-x-scroll pb-2"
+            variants={dashboardRowContainerVariants}
+            initial="hidden"
+            animate="show"
+          >
             {isLoadingBecauseYouLiked ? (
               Array.from({ length: 4 }).map((_, index) => (
-                <article key={`similar-skeleton-${index}`} className="w-[140px] flex-shrink-0 animate-pulse">
-                  <div className="h-[190px] w-full rounded-xl bg-[#2a2a2a]" />
-                  <div className="mt-2 h-3 w-4/5 rounded bg-[#2a2a2a]" />
-                  <div className="mt-2 h-2 w-2/5 rounded bg-[#2a2a2a]" />
-                  <div className="mt-2 h-2 w-3/5 rounded bg-[#2a2a2a]" />
-                </article>
+                <motion.div
+                  key={`similar-skeleton-${index}`}
+                  variants={dashboardMovieCardVariants}
+                  className="w-[140px] flex-shrink-0"
+                >
+                  <SkeletonMovieCard />
+                </motion.div>
               ))
             ) : becauseYouLikedItems.length > 0 ? (
               becauseYouLikedItems.map((item) => (
@@ -1963,37 +1977,53 @@ export default function DashboardPage() {
                 No hay títulos disponibles por ahora.
               </p>
             )}
-          </div>
-        </section>
+          </motion.div>
+        </motion.section>
 
-        <section className="mb-8">
+        <motion.section
+          className="mb-8"
+          initial={{ opacity: 0, y: 32 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.48, delay: 0.18, ease: [0.22, 1, 0.36, 1] }}
+        >
           <h2 className="mb-2 text-base font-semibold text-white">Ya sé lo que quiero ver</h2>
           <p className="mb-3 text-xs text-neutral-500">Una recomendación al instante según tu mood.</p>
           <div className="flex flex-col gap-2">
             {MOOD_CHOICES.map((m) => (
-              <button
+              <MotionButton
                 key={m.id}
                 type="button"
                 onClick={() => openMoodModal(m)}
                 className="w-full rounded-xl border border-[#2a2a2a] bg-[#101010] px-4 py-3.5 text-left text-sm font-medium text-white transition hover:border-neutral-500"
               >
                 {m.label}
-              </button>
+              </MotionButton>
             ))}
           </div>
-        </section>
+        </motion.section>
 
-        <section className="mb-8">
+        <motion.section
+          className="mb-8"
+          initial={{ opacity: 0, y: 32 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.48, delay: 0.22, ease: [0.22, 1, 0.36, 1] }}
+        >
           <h2 className="mb-2 text-base font-semibold text-white">Perfecto para esta noche</h2>
-          <div className="flex flex-row gap-3 overflow-x-scroll pb-2">
+          <motion.div
+            className="flex flex-row gap-3 overflow-x-scroll pb-2"
+            variants={dashboardRowContainerVariants}
+            initial="hidden"
+            animate="show"
+          >
             {isLoadingTonightMovies ? (
               Array.from({ length: 4 }).map((_, index) => (
-                <article key={`tonight-skeleton-${index}`} className="w-[140px] flex-shrink-0 animate-pulse">
-                  <div className="h-[190px] w-full rounded-xl bg-[#2a2a2a]" />
-                  <div className="mt-2 h-3 w-4/5 rounded bg-[#2a2a2a]" />
-                  <div className="mt-2 h-2 w-2/5 rounded bg-[#2a2a2a]" />
-                  <div className="mt-2 h-2 w-3/5 rounded bg-[#2a2a2a]" />
-                </article>
+                <motion.div
+                  key={`tonight-skeleton-${index}`}
+                  variants={dashboardMovieCardVariants}
+                  className="w-[140px] flex-shrink-0"
+                >
+                  <SkeletonMovieCard />
+                </motion.div>
               ))
             ) : tonightMoviesSorted.length > 0 ? (
               tonightMoviesSorted.map((item) => (
@@ -2012,20 +2042,31 @@ export default function DashboardPage() {
                 No hay títulos disponibles por ahora.
               </p>
             )}
-          </div>
-        </section>
+          </motion.div>
+        </motion.section>
 
-        <section className="mb-8">
+        <motion.section
+          className="mb-8"
+          initial={{ opacity: 0, y: 32 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.48, delay: 0.28, ease: [0.22, 1, 0.36, 1] }}
+        >
           <h2 className="mb-3 text-base font-semibold text-white">Novedades en tus plataformas</h2>
-          <div className="flex flex-row gap-3 overflow-x-scroll pb-2">
+          <motion.div
+            className="flex flex-row gap-3 overflow-x-scroll pb-2"
+            variants={dashboardRowContainerVariants}
+            initial="hidden"
+            animate="show"
+          >
             {isLoadingNowPlayingMovies ? (
               Array.from({ length: 4 }).map((_, index) => (
-                <article key={`nowplaying-skeleton-${index}`} className="w-[140px] flex-shrink-0 animate-pulse">
-                  <div className="h-[190px] w-full rounded-xl bg-[#2a2a2a]" />
-                  <div className="mt-2 h-3 w-4/5 rounded bg-[#2a2a2a]" />
-                  <div className="mt-2 h-2 w-2/5 rounded bg-[#2a2a2a]" />
-                  <div className="mt-2 h-2 w-3/5 rounded bg-[#2a2a2a]" />
-                </article>
+                <motion.div
+                  key={`nowplaying-skeleton-${index}`}
+                  variants={dashboardMovieCardVariants}
+                  className="w-[140px] flex-shrink-0"
+                >
+                  <SkeletonMovieCard />
+                </motion.div>
               ))
             ) : visibleNews.length > 0 ? (
               visibleNews.map((item) => (
@@ -2044,17 +2085,27 @@ export default function DashboardPage() {
                 No hay títulos disponibles por ahora.
               </p>
             )}
-          </div>
-        </section>
+          </motion.div>
+        </motion.section>
 
-        <section className="mb-8">
+        <motion.section
+          className="mb-8"
+          initial={{ opacity: 0, y: 32 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.48, delay: 0.34, ease: [0.22, 1, 0.36, 1] }}
+        >
           <h2 className="mb-3 text-base font-semibold text-white">Tu watchlist</h2>
           {watchlistItems.length === 0 ? (
             <p className="rounded-xl border border-[#2a2a2a] bg-[#101010] px-4 py-4 text-sm text-neutral-400">
               Guarda películas para verlas después...
             </p>
           ) : (
-            <div className="flex flex-row gap-3 overflow-x-scroll pb-2">
+            <motion.div
+              className="flex flex-row gap-3 overflow-x-scroll pb-2"
+              variants={dashboardRowContainerVariants}
+              initial="hidden"
+              animate="show"
+            >
               {watchlistItems.map((item) => (
                 <MovieCard
                   key={item.id}
@@ -2066,11 +2117,16 @@ export default function DashboardPage() {
                   onOpenDetail={openSheet}
                 />
               ))}
-            </div>
+            </motion.div>
           )}
-        </section>
+        </motion.section>
 
-        <section className="mb-8">
+        <motion.section
+          className="mb-8"
+          initial={{ opacity: 0, y: 32 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.48, delay: 0.4, ease: [0.22, 1, 0.36, 1] }}
+        >
           <h2 className="mb-3 text-base font-semibold text-white">Tu año en números</h2>
           {ratedMovies.length === 0 && (
             <p className="mb-3 text-xs text-neutral-400">Completa el test para ver tus estadísticas</p>
@@ -2091,19 +2147,24 @@ export default function DashboardPage() {
               <p className="mt-1 text-[11px] text-neutral-400">género favorito</p>
             </article>
           </div>
-        </section>
+        </motion.section>
 
-        <article className="mb-8 rounded-xl border border-[#2a2a2a] bg-[#101010] px-4 py-4">
+        <motion.article
+          className="mb-8 rounded-xl border border-[#2a2a2a] bg-[#101010] px-4 py-4"
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.4, delay: 0.45, ease: [0.22, 1, 0.36, 1] }}
+        >
           <p className="text-sm leading-relaxed text-neutral-400">
             Agrega amigos para ver sus recomendaciones y comparar gustos
           </p>
-          <Link
+          <MotionLink
             href="/amigos"
             className="mt-4 flex w-full items-center justify-center rounded-xl border border-[#2a2a2a] bg-[#141414] py-3 text-center text-sm font-semibold text-white transition hover:border-neutral-500"
           >
             Ir a amigos
-          </Link>
-        </article>
+          </MotionLink>
+        </motion.article>
 
         <TmdbDetailSheet
           sheet={sheet}
@@ -2123,27 +2184,41 @@ export default function DashboardPage() {
           shareMatchPercent={sheetShareMatch}
         />
 
-        {moodOpen ? (
-          <>
-            <button
-              type="button"
-              aria-label="Cerrar"
-              className="fixed inset-0 z-30 bg-black/70"
-              onClick={closeMoodModal}
-            />
-            <div
-              role="dialog"
-              aria-modal="true"
-              aria-labelledby="mood-modal-title"
-              className="fixed bottom-0 left-1/2 z-40 max-h-[90vh] w-full max-w-[400px] -translate-x-1/2 overflow-y-auto rounded-t-2xl border border-[#2a2a2a] border-b-0 bg-[#111]"
-            >
+        <AnimatePresence>
+          {moodOpen ? (
+            <>
+              <motion.button
+                key="mood-backdrop"
+                type="button"
+                aria-label="Cerrar"
+                className="fixed inset-0 z-30 bg-black/70"
+                onClick={closeMoodModal}
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0, transition: { duration: 0.2 } }}
+              />
+              <motion.div
+                key="mood-panel"
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby="mood-modal-title"
+                className="fixed bottom-0 left-1/2 z-40 max-h-[90vh] w-full max-w-[400px] -translate-x-1/2 overflow-y-auto rounded-t-2xl border border-[#2a2a2a] border-b-0 bg-[#111]"
+                initial={{ y: "105%" }}
+                animate={{ y: 0 }}
+                exit={{ y: "105%", transition: { duration: 0.34, ease: [0.32, 0.72, 0, 1] } }}
+                transition={{ type: "spring", stiffness: 300, damping: 32, mass: 0.88 }}
+              >
               <div className="sticky top-0 z-10 mx-auto mt-2 h-1 w-10 rounded-full bg-[#3f3f46]" />
               <div className="px-5 pb-8 pt-4">
                 <h2 id="mood-modal-title" className="text-center text-sm font-semibold text-neutral-400">
                   {moodPick?.label ?? "Tu mood"}
                 </h2>
                 {moodLoading ? (
-                  <p className="mt-10 text-center text-sm text-neutral-500">Buscando tu peli perfecta…</p>
+                  <div className="mt-8 flex flex-col items-center gap-3 px-2">
+                    <SkeletonShimmer className="h-64 w-full max-w-[220px]" rounded="xl" />
+                    <SkeletonShimmer className="h-3 w-3/4 max-w-[200px]" rounded="md" />
+                    <p className="text-center text-sm text-neutral-500">Buscando tu peli perfecta…</p>
+                  </div>
                 ) : moodMovie ? (
                   <>
                     <div className="mx-auto mb-4 mt-4 max-w-[220px] overflow-hidden rounded-xl border border-[#2a2a2a] bg-[#1a1a1a]">
@@ -2163,7 +2238,7 @@ export default function DashboardPage() {
                     </div>
                     <h3 className="text-center text-xl font-semibold text-white">{moodMovie.title}</h3>
                     <p className="mt-3 text-sm leading-relaxed text-neutral-300">{moodMovie.overview}</p>
-                    <button
+                    <MotionButton
                       type="button"
                       disabled={watchlist.includes(watchlistId("movie", moodMovie.id))}
                       onClick={() => {
@@ -2189,58 +2264,25 @@ export default function DashboardPage() {
                       {watchlist.includes(watchlistId("movie", moodMovie.id))
                         ? "Ya está en tu watchlist"
                         : "Añadir a watchlist"}
-                    </button>
+                    </MotionButton>
                   </>
                 ) : (
                   <p className="mt-8 text-center text-sm text-neutral-500">No hay resultado ahora mismo.</p>
                 )}
-                <button
+                <MotionButton
                   type="button"
                   onClick={closeMoodModal}
                   className="mt-4 w-full rounded-xl border border-[#333] bg-[#1a1a1a] py-3 text-sm font-medium text-neutral-200 transition hover:border-neutral-500"
                 >
                   Cerrar
-                </button>
+                </MotionButton>
               </div>
-            </div>
-          </>
-        ) : null}
+              </motion.div>
+            </>
+          ) : null}
+        </AnimatePresence>
 
-        <nav className="fixed bottom-0 left-1/2 z-20 w-full max-w-[400px] -translate-x-1/2 border-t border-[#1f1f1f] bg-[#0a0a0a]/95 px-5 py-3 backdrop-blur">
-          <ul className="grid grid-cols-4 gap-2">
-            <li className="flex flex-col items-center gap-1 text-[11px] font-medium text-white">
-              <HomeIcon active />
-              <span>Inicio</span>
-            </li>
-            <li>
-              <Link
-                href="/buscar"
-                className="flex flex-col items-center gap-1 text-[11px] font-medium text-neutral-500 transition hover:text-neutral-300"
-              >
-                <SearchIcon />
-                <span>Buscar</span>
-              </Link>
-            </li>
-            <li>
-              <Link
-                href="/amigos"
-                className="flex flex-col items-center gap-1 text-[11px] font-medium text-neutral-500 transition hover:text-neutral-300"
-              >
-                <FriendsIcon />
-                <span>Amigos</span>
-              </Link>
-            </li>
-            <li>
-              <Link
-                href="/perfil"
-                className="flex flex-col items-center gap-1 text-[11px] font-medium text-neutral-500 transition hover:text-neutral-300"
-              >
-                <ProfileIcon />
-                <span>Perfil</span>
-              </Link>
-            </li>
-          </ul>
-        </nav>
+        <BottomNav />
       </section>
     </main>
   );

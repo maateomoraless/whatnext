@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { AnimatePresence, motion } from "framer-motion";
+import { MotionButton } from "@/components/ui/MotionButton";
 
 type Platform = {
   id: string;
@@ -59,9 +60,9 @@ export default function OnboardingPlataformasPage() {
         {!isExiting && (
           <motion.section
             key="plataformas-screen"
-            initial={{ opacity: 0, x: 40 }}
+            initial={{ opacity: 0, x: 72 }}
             animate={{ opacity: 1, x: 0 }}
-            exit={{ opacity: 0, x: -40 }}
+            exit={{ opacity: 0, x: -72 }}
             transition={{ duration: 0.4, ease: "easeOut" }}
             className="mx-auto flex min-h-screen w-full max-w-[400px] flex-col items-center pt-12"
             style={{ position: "relative", zIndex: 1 }}
@@ -113,13 +114,13 @@ export default function OnboardingPlataformasPage() {
                   );
                 })}
               </div>
-              <button
+              <MotionButton
                 type="button"
                 onClick={() => setIsExiting(true)}
                 className="mt-6 w-full rounded-xl bg-white px-4 py-3 text-sm font-semibold text-black transition hover:bg-neutral-100"
               >
                 Siguiente →
-              </button>
+              </MotionButton>
             </div>
           </motion.section>
         )}

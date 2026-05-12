@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { AnimatePresence, motion } from "framer-motion";
+import { MotionButton } from "@/components/ui/MotionButton";
 
 type QuestionSection = {
   id: string;
@@ -226,9 +227,9 @@ export default function OnboardingGustosPage() {
         {!isExiting && (
           <motion.section
             key="gustos-screen"
-            initial={{ opacity: 0, x: 40 }}
+            initial={{ opacity: 0, x: 72 }}
             animate={{ opacity: 1, x: 0 }}
-            exit={{ opacity: 0, x: -40 }}
+            exit={{ opacity: 0, x: -72 }}
             transition={{ duration: 0.4, ease: "easeOut" }}
             className="relative mx-auto flex min-h-screen w-full max-w-[400px] flex-col items-center pt-12"
             style={{ zIndex: 1 }}
@@ -276,20 +277,23 @@ export default function OnboardingGustosPage() {
                           <motion.button
                             key={option}
                             type="button"
+                            layout
                             onClick={() => toggleOption(section.id, option, section.single)}
                             className="rounded-full border border-[#2a2a2a] px-3 py-1.5 text-sm transition"
+                            whileTap={{ scale: 0.9 }}
                             animate={
                               selected
                                 ? {
+                                    scale: [1, 1.08, 1],
                                     boxShadow: [
                                       "0 0 0 0 rgba(0,0,0,0)",
                                       `0 0 10px 0 ${baseColor ?? "#ffffff66"}`,
                                       "0 0 0 0 rgba(0,0,0,0)"
                                     ]
                                   }
-                                : { boxShadow: "0 0 0 0 rgba(0,0,0,0)" }
+                                : { scale: 1, boxShadow: "0 0 0 0 rgba(0,0,0,0)" }
                             }
-                            transition={{ duration: 0.28, ease: "easeOut" }}
+                            transition={{ duration: 0.32, ease: "easeOut" }}
                             style={{
                               borderColor,
                               backgroundColor,
@@ -306,13 +310,13 @@ export default function OnboardingGustosPage() {
               </div>
             </div>
 
-            <button
+            <MotionButton
               type="button"
               onClick={() => setIsExiting(true)}
               className="fixed bottom-6 left-1/2 z-20 w-[calc(100%-3rem)] max-w-[400px] -translate-x-1/2 rounded-xl bg-white px-4 py-3 text-sm font-semibold text-black transition hover:bg-neutral-100"
             >
               Siguiente →
-            </button>
+            </MotionButton>
           </motion.section>
         )}
       </AnimatePresence>

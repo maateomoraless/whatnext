@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
+import { MotionButton } from "@/components/ui/MotionButton";
 
 type ResultItem = {
   id: string;
@@ -119,13 +120,13 @@ export default function OnboardingFinalPage() {
           ))}
         </motion.div>
 
-        <button
+        <MotionButton
           type="button"
           onClick={() => router.push("/dashboard")}
           className="mt-8 w-full max-w-[340px] rounded-xl bg-white px-4 py-3 text-sm font-semibold text-black transition hover:bg-neutral-100"
         >
           Empezar a explorar
-        </button>
+        </MotionButton>
       </section>
     </main>
   );

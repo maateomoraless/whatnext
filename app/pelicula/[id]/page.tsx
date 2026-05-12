@@ -3,6 +3,9 @@
 import Image from "next/image";
 import { useParams, useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
+import { motion, type Variants } from "framer-motion";
+import { MotionButton } from "@/components/ui/MotionButton";
+import { SkeletonShimmer } from "@/components/ui/SkeletonShimmer";
 import {
   TMDB_API_KEY,
   collectProviderNames,
@@ -83,6 +86,18 @@ function hasRelevantAwards(awardsRaw?: string): boolean {
   }
   return /Oscar|BAFTA|Golden Globe|Globos de Oro|win|nomination/i.test(awardsRaw);
 }
+
+const castStagger: Variants = {
+  hidden: {},
+  show: {
+    transition: { staggerChildren: 0.05, delayChildren: 0.08 }
+  }
+};
+
+const castItem: Variants = {
+  hidden: { opacity: 0, x: 16 },
+  show: { opacity: 1, x: 0, transition: { duration: 0.35, ease: [0.22, 1, 0.36, 1] } }
+};
 
 export default function PeliculaDetallePage() {
   const router = useRouter();
@@ -274,12 +289,27 @@ export default function PeliculaDetallePage() {
         </button>
 
         {loading ? (
-          <p className="py-20 text-center text-sm text-neutral-500">Cargando detalle...</p>
+          <div className="space-y-4 py-8">
+            <div className="flex gap-3">
+              <SkeletonShimmer className="h-[180px] w-[120px] flex-shrink-0" rounded="lg" />
+              <div className="min-w-0 flex-1 space-y-2 pt-1">
+                <SkeletonShimmer className="h-6 w-full" rounded="md" />
+                <SkeletonShimmer className="h-3 w-1/3" rounded="md" />
+                <SkeletonShimmer className="h-16 w-full" rounded="lg" />
+              </div>
+            </div>
+            <p className="text-center text-sm text-neutral-500">Cargando detalle...</p>
+          </div>
         ) : (
           <>
             <article className="rounded-xl border border-[#2a2a2a] bg-[#101010] p-3">
               <div className="flex gap-3">
-                <div className="relative w-[120px] flex-shrink-0 overflow-hidden rounded-lg border border-[#2a2a2a] bg-[#141414]">
+                <motion.div
+                  className="relative w-[120px] flex-shrink-0 overflow-hidden rounded-lg border border-[#2a2a2a] bg-[#141414]"
+                  initial={{ opacity: 0, scale: 0.96 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  transition={{ type: "spring", stiffness: 280, damping: 26 }}
+                >
                   {detail?.poster_path ? (
                     <Image
                       src={`https://image.tmdb.org/t/p/w500${detail.poster_path}`}
@@ -291,7 +321,7 @@ export default function PeliculaDetallePage() {
                   ) : (
                     <div className="flex h-[180px] items-center justify-center text-xs text-neutral-600">Sin póster</div>
                   )}
-                </div>
+                </motion.div>
                 <div className="min-w-0 flex-1">
                   <h1 className="text-xl font-semibold leading-tight text-white">{title}</h1>
                   <p className="mt-1 text-sm text-neutral-400">{year}</p>
@@ -325,12 +355,21 @@ export default function PeliculaDetallePage() {
 
             <section className="mt-4 rounded-xl border border-[#2a2a2a] bg-[#101010] p-4">
               <h2 className="text-sm font-semibold text-white">Reparto principal</h2>
-              <div className="mt-3 flex gap-3 overflow-x-auto pb-1">
+              <motion.div
+                variants={castStagger}
+                initial="hidden"
+                animate="show"
+                className="mt-3 flex gap-3 overflow-x-auto pb-1"
+              >
                 {cast.length === 0 ? (
                   <p className="text-sm text-neutral-500">No hay datos de reparto.</p>
                 ) : (
                   cast.map((actor) => (
-                    <article key={actor.id} className="w-[100px] flex-shrink-0">
+                    <motion.article
+                      key={actor.id}
+                      variants={castItem}
+                      className="w-[100px] flex-shrink-0"
+                    >
                       <div className="h-[120px] w-full overflow-hidden rounded-lg border border-[#2a2a2a] bg-[#141414]">
                         {actor.profile_path ? (
                           <Image
@@ -346,14 +385,14 @@ export default function PeliculaDetallePage() {
                       </div>
                       <p className="mt-1 line-clamp-2 text-xs font-medium text-white">{actor.name ?? "—"}</p>
                       <p className="line-clamp-2 text-[11px] text-neutral-500">{actor.character ?? "—"}</p>
-                    </article>
+                    </motion.article>
                   ))
                 )}
-              </div>
+              </motion.div>
             </section>
 
             <div className="mt-4 space-y-2">
-              <button
+              <MotionButton
                 type="button"
                 disabled={!trailerUrl}
                 onClick={() => {
@@ -364,34 +403,36 @@ export default function PeliculaDetallePage() {
                 className="w-full rounded-xl border border-[#2a2a2a] bg-[#101010] py-3 text-sm font-medium text-white transition hover:border-neutral-500 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 Ver tráiler
-              </button>
-              <button
+              </MotionButton>
+              <MotionButton
                 type="button"
                 onClick={handleToggleWatchlist}
                 className="w-full rounded-xl bg-white py-3 text-sm font-semibold text-black transition hover:bg-neutral-100"
               >
                 {inWatchlist ? "Ya está en watchlist" : "Añadir a watchlist"}
-              </button>
-              <button
+              </MotionButton>
+              <MotionButton
                 type="button"
                 onClick={() => setShowStars((v) => !v)}
                 className="w-full rounded-xl border border-[#2a2a2a] bg-[#101010] py-3 text-sm font-medium text-white transition hover:border-neutral-500"
               >
                 Ya la vi
-              </button>
+              </MotionButton>
               {showStars ? (
                 <div className="rounded-xl border border-[#2a2a2a] bg-[#101010] p-3">
                   <p className="mb-2 text-center text-xs text-neutral-500">Valora esta película</p>
                   <div className="flex justify-center gap-2">
                     {[1, 2, 3, 4, 5].map((star) => (
-                      <button
+                      <motion.button
                         key={star}
                         type="button"
                         onClick={() => persistRating(star)}
                         className="h-8 w-8 rounded-md bg-[#202020] text-sm text-neutral-300 transition hover:bg-[#fbbf24] hover:text-black"
+                        whileTap={{ scale: 0.88 }}
+                        transition={{ type: "spring", stiffness: 500, damping: 22 }}
                       >
                         ★
-                      </button>
+                      </motion.button>
                     ))}
                   </div>
                   <button
