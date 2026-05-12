@@ -164,6 +164,7 @@ export default function BuscarPage() {
   }, [query]);
 
   useEffect(() => {
+    const ac = new AbortController();
     async function loadBrowse() {
       setBrowseLoading(true);
       const base = `https://api.themoviedb.org/3`;
