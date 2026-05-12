@@ -227,7 +227,7 @@ export default function SerieDetallePage() {
       );
     }
     setShowStars(false);
-    bumpMovieStreak();
+    void bumpMovieStreak();
     void logUserActivity({
       type: "rated",
       movieId: tvId,
@@ -254,7 +254,7 @@ export default function SerieDetallePage() {
         JSON.stringify({ [key]: { rating: 0, unseen: true, genreIds, title } })
       );
     }
-    bumpMovieStreak();
+    void bumpMovieStreak();
     void logUserActivity({
       type: "watched",
       movieId: tvId,

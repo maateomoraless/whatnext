@@ -5,7 +5,12 @@ import { usePathname, useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion, type Variants } from "framer-motion";
 import { BottomNav } from "@/components/BottomNav";
-import { bumpMovieStreak, readEffectiveMovieStreak } from "@/lib/movieStreak";
+import {
+  bumpMovieStreak,
+  claimPendingStreakMilestoneOnVisit,
+  claimStreakMilestoneAfterBump,
+  readEffectiveMovieStreak
+} from "@/lib/movieStreak";
 import { logUserActivity, syncProfileFromLocal } from "@/lib/social";
 import { supabase } from "@/lib/supabase";
 import {
@@ -1215,7 +1220,7 @@ export default function DashboardPage() {
   const [detailLoading, setDetailLoading] = useState(false);
   const [starsPanelOpen, setStarsPanelOpen] = useState(false);
   const [streakDays, setStreakDays] = useState(0);
-  const [sheetShareMatch, setSheetShareMatch] = useState<number | undefined>(undefined);
+  const [streakBanner, setStreakBanner] = useState<string | null>(null);
   const [moodOpen, setMoodOpen] = useState(false);
   const [moodLoading, setMoodLoading] = useState(false);
   const [moodMovie, setMoodMovie] = useState<MoodMovie | null>(null);
@@ -1239,7 +1244,12 @@ export default function DashboardPage() {
       window.localStorage.setItem("valoraciones", JSON.stringify(next));
       return next;
     });
-    setStreakDays(bumpMovieStreak());
+    const bump = bumpMovieStreak();
+    setStreakDays(bump.count);
+    const streakMsg = claimStreakMilestoneAfterBump(bump);
+    if (streakMsg) {
+      setStreakBanner(streakMsg);
+    }
     void logUserActivity({
       type: "rated",
       movieId: item.tmdbId,
@@ -1264,7 +1274,12 @@ export default function DashboardPage() {
       window.localStorage.setItem("valoraciones", JSON.stringify(next));
       return next;
     });
-    setStreakDays(bumpMovieStreak());
+    const bump = bumpMovieStreak();
+    setStreakDays(bump.count);
+    const streakMsg = claimStreakMilestoneAfterBump(bump);
+    if (streakMsg) {
+      setStreakBanner(streakMsg);
+    }
     void logUserActivity({
       type: "watched",
       movieId: item.tmdbId,
@@ -1320,7 +1335,19 @@ export default function DashboardPage() {
 
   useEffect(() => {
     setStreakDays(readEffectiveMovieStreak());
+    const pending = claimPendingStreakMilestoneOnVisit();
+    if (pending) {
+      setStreakBanner(pending);
+    }
   }, []);
+
+  useEffect(() => {
+    if (!streakBanner) {
+      return undefined;
+    }
+    const t = window.setTimeout(() => setStreakBanner(null), 4000);
+    return () => window.clearTimeout(t);
+  }, [streakBanner]);
 
   useEffect(
     () => () => {
@@ -1827,8 +1854,12 @@ export default function DashboardPage() {
 
       setStarsPanelOpen(false);
       setSheet(null);
-      setSheetShareMatch(undefined);
-      setStreakDays(bumpMovieStreak());
+      const bump = bumpMovieStreak();
+      setStreakDays(bump.count);
+      const streakMsg = claimStreakMilestoneAfterBump(bump);
+      if (streakMsg) {
+        setStreakBanner(streakMsg);
+      }
       if (sheet.media === "movie") {
         void logUserActivity({
           type: "rated",
@@ -1844,6 +1875,21 @@ export default function DashboardPage() {
 
   return (
     <main className="flex min-h-screen justify-center bg-[#0a0a0a] px-6 text-white">
+      <AnimatePresence>
+        {streakBanner ? (
+          <motion.div
+            key={streakBanner}
+            role="status"
+            initial={{ opacity: 0, y: -14 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -10 }}
+            transition={{ duration: 0.38, ease: [0.22, 1, 0.36, 1] }}
+            className="fixed left-1/2 top-[max(0.75rem,env(safe-area-inset-top))] z-[70] w-[min(calc(100%-2rem),22rem)] -translate-x-1/2 rounded-2xl border border-[#333] bg-[#141414] px-4 py-3 text-center text-sm font-semibold text-white shadow-xl"
+          >
+            {streakBanner}
+          </motion.div>
+        ) : null}
+      </AnimatePresence>
       <section className="relative w-full max-w-[400px] pt-10 pb-28">
         <p className="mb-6 w-full text-center text-xs uppercase tracking-[0.35em] text-neutral-500 select-none">
           WhatNext?
@@ -2170,7 +2216,6 @@ export default function DashboardPage() {
           sheet={sheet}
           onClose={() => {
             setSheet(null);
-            setSheetShareMatch(undefined);
           }}
           detailMovie={detailMovie}
           detailTv={detailTv}
@@ -2181,7 +2226,6 @@ export default function DashboardPage() {
           starsPanelOpen={starsPanelOpen}
           onToggleStarsPanel={() => setStarsPanelOpen((o) => !o)}
           persistRating={persistRating}
-          shareMatchPercent={sheetShareMatch}
         />
 
         <AnimatePresence>

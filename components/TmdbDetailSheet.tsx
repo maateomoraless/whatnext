@@ -323,8 +323,7 @@ export function TmdbDetailSheet({
   onToggleWatchlist,
   starsPanelOpen,
   onToggleStarsPanel,
-  persistRating,
-  shareMatchPercent
+  persistRating
 }: {
   sheet: SheetState | null;
   onClose: () => void;
@@ -337,8 +336,6 @@ export function TmdbDetailSheet({
   starsPanelOpen: boolean;
   onToggleStarsPanel: () => void;
   persistRating: (stars: number) => void;
-  /** Si es un número, se incluye en el texto al compartir; si no se pasa, se omite el porcentaje. */
-  shareMatchPercent?: number | null;
 }) {
   const [copyToast, setCopyToast] = useState(false);
 
@@ -346,49 +343,55 @@ export function TmdbDetailSheet({
     if (!copyToast) {
       return undefined;
     }
-    const t = window.setTimeout(() => setCopyToast(false), 2200);
+    const t = window.setTimeout(() => setCopyToast(false), 3000);
     return () => window.clearTimeout(t);
   }, [copyToast]);
 
-  const buildShareText = useCallback(() => {
+  const buildSharePayload = useCallback(() => {
     if (!sheet) {
-      return "";
+      return null;
     }
     const { item, media } = sheet;
     const title =
       media === "movie" ? detailMovie?.title ?? item.title ?? "Sin título" : detailTv?.name ?? item.name ?? "Sin título";
     const platform = providers[0] ?? "streaming";
-    const base = `Te recomiendo ver ${title} en ${platform}`;
-    const mid =
-      typeof shareMatchPercent === "number" && Number.isFinite(shareMatchPercent)
-        ? ` — ${Math.round(shareMatchPercent)}% de match`
-        : "";
-    return `${base}${mid} en WhatNext? 🎬 whatnext-gray.vercel.app`;
-  }, [sheet, detailMovie, detailTv, providers, shareMatchPercent]);
+    const text = `Te recomiendo ${title} — disponible en ${platform} 🎬 Descúbrela en WhatNext? whatnext-gray.vercel.app`;
+    const base = "https://whatnext-gray.vercel.app";
+    const url = media === "movie" ? `${base}/pelicula/${item.id}` : `${base}/serie/${item.id}`;
+    return { title: "WhatNext?", text, url };
+  }, [sheet, detailMovie, detailTv, providers]);
 
   const handleShare = useCallback(async () => {
-    const text = buildShareText();
-    if (!text) {
+    const payload = buildSharePayload();
+    if (!payload) {
       return;
     }
     try {
       if (typeof navigator !== "undefined" && typeof navigator.share === "function") {
-        await navigator.share({ title: "WhatNext?", text });
+        await navigator.share({
+          title: payload.title,
+          text: payload.text,
+          url: payload.url
+        });
         return;
       }
     } catch (err) {
       if (err instanceof DOMException && err.name === "AbortError") {
         return;
       }
-      // falló share o no disponible; intentar portapapeles
     }
+    const clip = `${payload.text}\n${payload.url}`;
     try {
-      await navigator.clipboard.writeText(text);
-      setCopyToast(true);
+      await navigator.clipboard.writeText(clip);
     } catch {
-      setCopyToast(true);
+      try {
+        await navigator.clipboard.writeText(payload.text);
+      } catch {
+        // ignore
+      }
     }
-  }, [buildShareText]);
+    setCopyToast(true);
+  }, [buildSharePayload]);
 
   return (
     <>
@@ -410,14 +413,21 @@ export function TmdbDetailSheet({
             })
           : null}
       </AnimatePresence>
-      {copyToast ? (
-        <div
-          role="status"
-          className="fixed bottom-24 left-1/2 z-50 -translate-x-1/2 rounded-full border border-[#333] bg-[#1a1a1a] px-4 py-2 text-sm text-white shadow-lg"
-        >
-          ¡Copiado!
-        </div>
-      ) : null}
+      <AnimatePresence>
+        {copyToast ? (
+          <motion.div
+            key="copy-toast"
+            role="status"
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 4 }}
+            transition={{ duration: 0.28, ease: "easeOut" }}
+            className="fixed bottom-24 left-1/2 z-50 -translate-x-1/2 rounded-full border border-[#333] bg-[#1a1a1a] px-4 py-2 text-sm text-white shadow-lg"
+          >
+            ¡Enlace copiado!
+          </motion.div>
+        ) : null}
+      </AnimatePresence>
     </>
   );
 }

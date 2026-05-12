@@ -343,7 +343,7 @@ export default function BuscarPage() {
       }
       setStarsPanelOpen(false);
       setSheet(null);
-      bumpMovieStreak();
+      void bumpMovieStreak();
       if (sheet.media === "movie") {
         void logUserActivity({
           type: "rated",

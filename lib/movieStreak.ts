@@ -1,4 +1,5 @@
 const MOVIE_STREAK_LS = "whatnext-daily-movie-streak";
+const STREAK_MILESTONE_BANNERS_SHOWN_LS = "whatnext-streak-milestone-banners-shown";
 
 function streakTodayKey(): string {
   return new Date().toLocaleDateString("en-CA");
@@ -51,20 +52,102 @@ export function readEffectiveMovieStreak(): number {
   return s.count;
 }
 
-export function bumpMovieStreak(): number {
+export type BumpMovieStreakResult = {
+  count: number;
+  /**
+   * True cuando esta llamada avanzó la racha (nuevo día consecutivo, primer registro,
+   * o reinicio tras hueco). False si ya hubo actividad hoy (misma racha, mismo contador).
+   */
+  streakJustAdvanced: boolean;
+};
+
+export function bumpMovieStreak(): BumpMovieStreakResult {
   const today = streakTodayKey();
   const s = readStreakFromStorage();
   let nextCount: number;
+  let streakJustAdvanced: boolean;
+
   if (!s?.lastActiveDate) {
     nextCount = 1;
+    streakJustAdvanced = true;
   } else if (s.lastActiveDate === today) {
     nextCount = s.count;
+    streakJustAdvanced = false;
   } else if (streakCalendarDaysBetween(s.lastActiveDate, today) === 1) {
     nextCount = s.count + 1;
+    streakJustAdvanced = true;
   } else {
     nextCount = 1;
+    streakJustAdvanced = true;
   }
+
   const payload: StreakStorage = { lastActiveDate: today, count: nextCount };
   window.localStorage.setItem(MOVIE_STREAK_LS, JSON.stringify(payload));
-  return nextCount;
+  return { count: nextCount, streakJustAdvanced };
+}
+
+function readMilestonesShown(): Set<number> {
+  if (typeof window === "undefined") {
+    return new Set();
+  }
+  try {
+    const raw = window.localStorage.getItem(STREAK_MILESTONE_BANNERS_SHOWN_LS);
+    if (!raw) {
+      return new Set();
+    }
+    const parsed = JSON.parse(raw) as unknown;
+    if (!Array.isArray(parsed)) {
+      return new Set();
+    }
+    return new Set(parsed.filter((n): n is number => n === 3 || n === 7 || n === 30));
+  } catch {
+    return new Set();
+  }
+}
+
+function markMilestoneShown(milestone: 3 | 7 | 30): void {
+  if (typeof window === "undefined") {
+    return;
+  }
+  const s = readMilestonesShown();
+  s.add(milestone);
+  window.localStorage.setItem(STREAK_MILESTONE_BANNERS_SHOWN_LS, JSON.stringify([...s]));
+}
+
+function streakMilestoneMessage(count: 3 | 7 | 30): string {
+  if (count === 3) {
+    return "🔥 3 días seguidos";
+  }
+  if (count === 7) {
+    return "🔥 Semana perfecta";
+  }
+  return "🔥 Un mes sin parar";
+}
+
+function tryClaimMilestoneMessage(count: number): string | null {
+  if (count !== 3 && count !== 7 && count !== 30) {
+    return null;
+  }
+  const milestone = count as 3 | 7 | 30;
+  const shown = readMilestonesShown();
+  if (shown.has(milestone)) {
+    return null;
+  }
+  markMilestoneShown(milestone);
+  return streakMilestoneMessage(milestone);
+}
+
+/** Tras valorar o marcar visto: solo si la racha acaba de subir ese día. */
+export function claimStreakMilestoneAfterBump(bump: BumpMovieStreakResult): string | null {
+  if (!bump.streakJustAdvanced) {
+    return null;
+  }
+  return tryClaimMilestoneMessage(bump.count);
+}
+
+/**
+ * Al abrir el dashboard: si ya alcanzó 3 / 7 / 30 días (p. ej. en otra pantalla) y aún no se mostró el hito.
+ */
+export function claimPendingStreakMilestoneOnVisit(): string | null {
+  return tryClaimMilestoneMessage(readEffectiveMovieStreak());
 }

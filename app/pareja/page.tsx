@@ -2,7 +2,10 @@
 
 import Image from "next/image";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
+import { motion } from "framer-motion";
+import { MotionButton } from "@/components/ui/MotionButton";
 import { fetchJson, TMDB_API_KEY } from "@/components/TmdbDetailSheet";
 
 const GENRE_OPTIONS = [
@@ -30,6 +33,28 @@ const GENRE_IDS_BY_NAME: Record<string, number> = {
   Romance: 10749,
   Fantasía: 14
 };
+
+const GENRE_PILL_COLORS: Record<string, string> = {
+  Acción: "#FF4500",
+  Drama: "#4A90D9",
+  Comedia: "#FFD700",
+  Terror: "#8B0000",
+  "Sci-fi": "#00CED1",
+  Documental: "#808080",
+  Thriller: "#800080",
+  Animación: "#FF69B4",
+  Romance: "#FF1493",
+  Fantasía: "#9370DB"
+};
+
+function brightenHexColor(hex: string, amount = 0.28) {
+  const parsed = hex.replace("#", "");
+  const r = Number.parseInt(parsed.slice(0, 2), 16);
+  const g = Number.parseInt(parsed.slice(2, 4), 16);
+  const b = Number.parseInt(parsed.slice(4, 6), 16);
+  const brighten = (value: number) => Math.min(255, Math.round(value + (255 - value) * amount));
+  return `rgb(${brighten(r)} ${brighten(g)} ${brighten(b)})`;
+}
 
 const PROVIDER_ID_BY_PLATFORM: Record<string, number> = {
   Netflix: 8,
@@ -86,7 +111,12 @@ type ResultRow = {
   matchPct: number;
   platform: string;
   platformColor: string;
+  gradient: [string, string];
 };
+
+function gradientForMovieId(id: number): [string, string] {
+  return id % 2 === 0 ? ["#1f1f1f", "#0b0b0b"] : ["#2a241a", "#0f0d09"];
+}
 
 function idsFromLabels(labels: string[]): number[] {
   const out: number[] = [];
@@ -122,7 +152,67 @@ async function firstEsFlatrateProvider(movieId: number, apiKey: string): Promise
   return { name: normalized, color };
 }
 
+const resultRowVariants = {
+  hidden: { opacity: 0, y: 18 },
+  show: { opacity: 1, y: 0, transition: { duration: 0.38, ease: [0.22, 1, 0.36, 1] as const } }
+};
+
+const resultListVariants = {
+  hidden: {},
+  show: {
+    transition: { staggerChildren: 0.07, delayChildren: 0.06 }
+  }
+};
+
+function CoupleResultCard({ row, onOpen }: { row: ResultRow; onOpen: (id: number) => void }) {
+  return (
+    <motion.article variants={resultRowVariants} className="w-[140px] flex-shrink-0">
+      <motion.div
+        role="button"
+        tabIndex={0}
+        onClick={() => onOpen(row.id)}
+        onKeyDown={(event) => {
+          if (event.key === "Enter" || event.key === " ") {
+            event.preventDefault();
+            onOpen(row.id);
+          }
+        }}
+        className="relative h-[190px] w-full cursor-pointer overflow-hidden rounded-xl border border-[#2a2a2a]"
+        whileHover={{ scale: 0.97 }}
+        whileTap={{ scale: 0.97 }}
+        transition={{ type: "spring", stiffness: 420, damping: 28 }}
+      >
+        {row.posterPath ? (
+          <Image
+            src={`https://image.tmdb.org/t/p/w342${row.posterPath}`}
+            alt={`Póster de ${row.title}`}
+            width={342}
+            height={513}
+            className="h-full w-full object-cover"
+          />
+        ) : (
+          <div
+            className="h-full w-full"
+            style={{
+              background: `linear-gradient(180deg, ${row.gradient[0]} 0%, ${row.gradient[1]} 100%)`
+            }}
+          />
+        )}
+      </motion.div>
+      <p className="mt-2 cursor-pointer truncate text-sm font-medium text-white" onClick={() => onOpen(row.id)}>
+        {row.title}
+      </p>
+      <p className="text-xs font-medium text-[#22c55e]">{row.matchPct}% match</p>
+      <div className="mt-1 flex items-center gap-1.5 text-xs text-neutral-400">
+        <span className="h-2 w-2 flex-shrink-0 rounded-full" style={{ backgroundColor: row.platformColor }} />
+        <span className="truncate">{row.platform}</span>
+      </div>
+    </motion.article>
+  );
+}
+
 export default function ParejaPage() {
+  const router = useRouter();
   const [a, setA] = useState<string[]>([]);
   const [b, setB] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
@@ -185,16 +275,16 @@ export default function ParejaPage() {
       const apiKey = TMDB_API_KEY;
 
       while (collected.length < 40 && page <= 8) {
-        const params = new URLSearchParams({
-          api_key: apiKey,
-          language: "es-ES",
-          watch_region: "ES",
-          with_watch_providers: providerPipe,
-          with_genres: withGenres,
-          sort_by: "vote_average.desc",
-          page: String(page),
-          "vote_count.gte": "80"
-        });
+        const params = new URLSearchParams();
+        params.set("api_key", apiKey);
+        params.set("language", "es-ES");
+        params.set("watch_region", "ES");
+        params.set("with_watch_providers", providerPipe);
+        params.set("with_genres", withGenres);
+        params.set("sort_by", "vote_average.desc");
+        params.set("page", String(page));
+        params.set("vote_count.gte", "80");
+
         const url = `https://api.themoviedb.org/3/discover/movie?${params.toString()}`;
         const data = await fetchJson<DiscoverResponse>(url);
         const batch = data?.results ?? [];
@@ -227,7 +317,8 @@ export default function ParejaPage() {
             matchPct,
             vote: m.vote_average ?? 0,
             platform: prov.name,
-            platformColor: prov.color
+            platformColor: prov.color,
+            gradient: gradientForMovieId(m.id)
           };
         })
       );
@@ -248,6 +339,50 @@ export default function ParejaPage() {
     }
   }, [a, b, plataformas]);
 
+  const GenrePill = ({
+    label,
+    selected,
+    onToggle
+  }: {
+    label: string;
+    selected: boolean;
+    onToggle: () => void;
+  }) => {
+    const baseColor = GENRE_PILL_COLORS[label];
+    const borderColor = selected ? (baseColor ?? "#ffffff") : "#2a2a2a";
+    const backgroundColor = selected ? (baseColor ? `${baseColor}26` : "#ffffff") : "transparent";
+    const textColor = selected ? (baseColor ? brightenHexColor(baseColor) : "#000000") : "#a3a3a3";
+    return (
+      <motion.button
+        type="button"
+        layout
+        onClick={onToggle}
+        className="rounded-full border border-[#2a2a2a] px-3 py-1.5 text-sm transition"
+        whileTap={{ scale: 0.9 }}
+        animate={
+          selected
+            ? {
+                scale: [1, 1.08, 1],
+                boxShadow: [
+                  "0 0 0 0 rgba(0,0,0,0)",
+                  `0 0 10px 0 ${baseColor ?? "#ffffff66"}`,
+                  "0 0 0 0 rgba(0,0,0,0)"
+                ]
+              }
+            : { scale: 1, boxShadow: "0 0 0 0 rgba(0,0,0,0)" }
+        }
+        transition={{ duration: 0.32, ease: "easeOut" }}
+        style={{
+          borderColor,
+          backgroundColor,
+          color: textColor
+        }}
+      >
+        {label}
+      </motion.button>
+    );
+  };
+
   const GenreColumn = ({
     title,
     who,
@@ -259,28 +394,24 @@ export default function ParejaPage() {
   }) => (
     <div className="rounded-xl border border-[#2a2a2a] bg-[#101010] p-4">
       <p className="mb-3 text-sm font-semibold text-white">{title}</p>
-      <ul className="flex flex-col gap-2">
-        {GENRE_OPTIONS.map((label) => {
-          const on = selected.includes(label);
-          return (
-            <li key={`${who}-${label}`}>
-              <button
-                type="button"
-                onClick={() => toggle(who, label)}
-                className={`flex w-full items-center justify-between rounded-lg border px-3 py-2 text-left text-sm transition ${
-                  on
-                    ? "border-white bg-white text-black"
-                    : "border-[#333] bg-[#161616] text-neutral-200 hover:border-neutral-500"
-                }`}
-              >
-                <span>{label}</span>
-                <span className="text-xs">{on ? "✓" : ""}</span>
-              </button>
-            </li>
-          );
-        })}
-      </ul>
+      <div className="flex flex-wrap gap-2">
+        {GENRE_OPTIONS.map((label) => (
+          <GenrePill
+            key={`${who}-${label}`}
+            label={label}
+            selected={selected.includes(label)}
+            onToggle={() => toggle(who, label)}
+          />
+        ))}
+      </div>
     </div>
+  );
+
+  const openMovie = useCallback(
+    (id: number) => {
+      router.push(`/pelicula/${id}`);
+    },
+    [router]
   );
 
   return (
@@ -309,14 +440,33 @@ export default function ParejaPage() {
           <GenreColumn title="Persona 2" who="b" selected={b} />
         </div>
 
-        <button
+        {loading ? (
+          <div className="mb-4 space-y-2">
+            <div className="h-1.5 w-full overflow-hidden rounded-full bg-[#2a2a2a]">
+              <motion.div
+                className="h-full max-w-full rounded-full bg-white"
+                initial={{ width: "8%" }}
+                animate={{ width: ["12%", "38%", "62%", "88%", "94%"] }}
+                transition={{
+                  duration: 2.4,
+                  repeat: Infinity,
+                  ease: "easeInOut",
+                  repeatType: "mirror"
+                }}
+              />
+            </div>
+            <p className="text-center text-xs text-neutral-500">Buscando recomendaciones en común…</p>
+          </div>
+        ) : null}
+
+        <MotionButton
           type="button"
           disabled={loading}
           onClick={() => void runSearch()}
           className="mb-8 w-full rounded-xl bg-white py-3 text-sm font-semibold text-black transition hover:bg-neutral-100 disabled:cursor-not-allowed disabled:opacity-60"
         >
           {loading ? "Buscando…" : "Ver 5 mejores en común"}
-        </button>
+        </MotionButton>
 
         {error ? (
           <p className="mb-6 rounded-xl border border-red-900/50 bg-red-950/30 px-4 py-3 text-sm text-red-200">
@@ -327,39 +477,16 @@ export default function ParejaPage() {
         {results.length > 0 ? (
           <section>
             <h2 className="mb-3 text-base font-semibold text-white">Top en común</h2>
-            <ul className="space-y-4">
+            <motion.div
+              className="flex flex-row gap-3 overflow-x-auto pb-2"
+              variants={resultListVariants}
+              initial="hidden"
+              animate="show"
+            >
               {results.map((row) => (
-                <li
-                  key={row.id}
-                  className="flex gap-3 rounded-xl border border-[#2a2a2a] bg-[#101010] p-3"
-                >
-                  <div className="relative h-[120px] w-[80px] flex-shrink-0 overflow-hidden rounded-lg border border-[#2a2a2a] bg-[#1a1a1a]">
-                    {row.posterPath ? (
-                      <Image
-                        src={`https://image.tmdb.org/t/p/w342${row.posterPath}`}
-                        alt=""
-                        width={342}
-                        height={513}
-                        className="h-full w-full object-cover"
-                      />
-                    ) : (
-                      <div className="flex h-full items-center justify-center text-[10px] text-neutral-600">
-                        Sin póster
-                      </div>
-                    )}
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <p className="text-sm font-semibold text-white">{row.title}</p>
-                    <p className="mt-1 text-lg font-bold text-emerald-400">{row.matchPct}% match</p>
-                    <div className="mt-1 flex items-center gap-1.5 text-xs text-neutral-400">
-                      <span className="h-2 w-2 rounded-full" style={{ backgroundColor: row.platformColor }} />
-                      <span className="truncate">{row.platform}</span>
-                    </div>
-                    <p className="mt-2 line-clamp-3 text-xs leading-relaxed text-neutral-500">{row.overview}</p>
-                  </div>
-                </li>
+                <CoupleResultCard key={row.id} row={row} onOpen={openMovie} />
               ))}
-            </ul>
+            </motion.div>
           </section>
         ) : null}
       </section>

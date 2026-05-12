@@ -233,7 +233,7 @@ export default function PeliculaDetallePage() {
       window.localStorage.setItem("valoraciones", JSON.stringify({ [key]: { rating: stars, unseen: false, genreIds, title } }));
     }
     setShowStars(false);
-    bumpMovieStreak();
+    void bumpMovieStreak();
     void logUserActivity({
       type: "rated",
       movieId,
@@ -257,7 +257,7 @@ export default function PeliculaDetallePage() {
     } catch {
       window.localStorage.setItem("valoraciones", JSON.stringify({ [key]: { rating: 0, unseen: true, genreIds, title } }));
     }
-    bumpMovieStreak();
+    void bumpMovieStreak();
     void logUserActivity({
       type: "watched",
       movieId,
